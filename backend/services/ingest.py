@@ -7,10 +7,13 @@ from pypdf import PdfReader
 import pdfplumber
 
 from database import get_qdrant, get_database
-from services.llm import get_embeddings
+from services.llm import get_embeddings, get_llm
+import asyncio
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client.http import models as qd_models
 import datetime
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
 
 def extract_text_from_pdf(file_path: str) -> str:
     text = ""
@@ -63,28 +66,55 @@ def extract_text_from_txt(file_path: str) -> str:
 async def process_and_index_file(file_bytes: bytes, filename: str, folder_id: str) -> dict:
     ext = os.path.splitext(filename)[1].lower()
     
-    # 1. Guardar temporalmente el archivo para procesarlo
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
-        temp_file.write(file_bytes)
-        temp_path = temp_file.name
+    # Guardar permanentemente en backend/uploads/{folder_id}/{filename}
+    folder_dir = os.path.join(UPLOAD_DIR, folder_id)
+    os.makedirs(folder_dir, exist_ok=True)
+    file_path = os.path.join(folder_dir, filename)
+    
+    with open(file_path, "wb") as f:
+        f.write(file_bytes)
 
     text = ""
     try:
         if ext == ".pdf":
-            text = extract_text_from_pdf(temp_path)
+            text = extract_text_from_pdf(file_path)
         elif ext in [".doc", ".docx"]:
-            text = extract_text_from_docx(temp_path)
+            text = extract_text_from_docx(file_path)
         elif ext in [".txt"]:
-            text = extract_text_from_txt(temp_path)
+            text = extract_text_from_txt(file_path)
         else:
             raise ValueError(f"Extensión de archivo no soportada: {ext}")
-    finally:
-        # Borrar el archivo temporal
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+    except Exception as e:
+        # Si falla la extracción de texto, eliminamos el archivo guardado
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise e
 
     if not text.strip():
+        # Si el texto está vacío, también eliminamos el archivo guardado
+        if os.path.exists(file_path):
+            os.remove(file_path)
         raise ValueError("No se pudo extraer texto del archivo (el archivo podría estar vacío o escaneado sin OCR).")
+
+    # 1.5 Generar etiquetas automáticamente (síncrono)
+    tags = []
+    try:
+        llm = get_llm()
+        sample_text = text[:4000]
+        prompt = (
+            "Analiza el siguiente texto y extrae exactamente 3 a 5 palabras clave o etiquetas cortas (máximo 2 palabras por etiqueta) que describan su contenido principal. "
+            "Responde ÚNICAMENTE con las etiquetas separadas por comas, sin ninguna otra palabra, introducción o explicación.\n\n"
+            f"Texto: {sample_text}"
+        )
+        if hasattr(llm, 'ainvoke'):
+            tag_response = await llm.ainvoke(prompt)
+        else:
+            tag_response = await asyncio.to_thread(llm.invoke, prompt)
+            
+        tags = [t.strip().title() for t in tag_response.split(',') if t.strip()]
+        tags = tags[:5]
+    except Exception as e:
+        print(f"Error generando etiquetas con LLM: {e}")
 
     # 2. Dividir el texto en fragmentos (Chunking)
     # Aumentamos el tamaño para que fechas e información relacionada no queden separadas
@@ -139,6 +169,7 @@ async def process_and_index_file(file_bytes: bytes, filename: str, folder_id: st
         "folder_id": folder_id,
         "chunk_count": len(chunks),
         "status": "indexed",
+        "tags": tags,
         "created_at": datetime.datetime.utcnow()
     }
     

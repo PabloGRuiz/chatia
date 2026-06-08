@@ -97,6 +97,7 @@ async def search_qdrant(query: str, folder_id: str = None, filenames: List[str] 
             {
                 "text": hit.payload.get("text", ""),
                 "filename": hit.payload.get("filename", ""),
+                "folder_id": hit.payload.get("folder_id", ""),
                 "score": hit.score
             }
             for hit in response.points

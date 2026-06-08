@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 from database import get_database, get_qdrant
 from bson import ObjectId
 from qdrant_client.http import models as qd_models
 import datetime
+from auth import get_admin_user
 
 router = APIRouter()
 
@@ -21,9 +22,6 @@ async def list_folders():
         if "created_at" in folder and isinstance(folder["created_at"], str) == False:
             folder["created_at"] = folder["created_at"].isoformat()
     return folders
-
-from auth import get_admin_user
-from fastapi import Depends
 
 @router.post("/")
 async def create_folder(folder: FolderCreate, current_user: dict = Depends(get_admin_user)):

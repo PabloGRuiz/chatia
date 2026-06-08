@@ -1,8 +1,9 @@
+import datetime
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from database import get_database
-from auth import get_password_hash, get_current_user, get_admin_user
+from auth import get_password_hash, get_current_user, get_admin_user, verify_password
 from bson import ObjectId
 from models import UserDB
 
@@ -58,7 +59,7 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_ad
         "email": user_data.email,
         "password_hash": get_password_hash(user_data.password),
         "role": user_data.role,
-        "created_at": __import__('datetime').datetime.utcnow()
+        "created_at": datetime.datetime.utcnow()
     }
     
     result = await db.users.insert_one(new_user)
@@ -117,7 +118,6 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_admin_user)
 
 @router.put("/me/password")
 async def change_my_password(pass_data: PasswordChange, current_user: dict = Depends(get_current_user)):
-    from auth import verify_password
     db = get_database()
     
     user = await db.users.find_one({"email": current_user["email"]})

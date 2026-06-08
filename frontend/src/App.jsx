@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, Folder, Database, Settings, ShieldAlert, Bot, LogOut, Lock, Mail, Users, FileText, Plus, Trash2, ChevronRight, ChevronDown, Sun, Moon, Edit2, XCircle, CheckSquare, Square, Key } from 'lucide-react'
+import { Send, Folder, Database, Settings, ShieldAlert, Bot, LogOut, Lock, Mail, Users, FileText, Plus, Trash2, ChevronRight, ChevronDown, Sun, Moon, Edit2, XCircle, CheckSquare, Square, Key, Search, Eye, Download } from 'lucide-react'
 
 // Intercept all fetch requests to auto-logout on expired/invalid JWT token
 const originalFetch = window.fetch;
@@ -222,6 +222,16 @@ function App() {
   const [savingGlossary, setSavingGlossary] = useState(false)
   const [glossaryMessage, setGlossaryMessage] = useState('')
 
+  // Semantic Search State
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
+
+  // Document administration pagination and local filter states
+  const [docSearchQuery, setDocSearchQuery] = useState('')
+  const [docCurrentPage, setDocCurrentPage] = useState(1)
+
   // Load user from localStorage
   useEffect(() => {
     const storedUser = localStorage.getItem('chatia_user')
@@ -256,6 +266,8 @@ function App() {
       if (res.ok) {
         const data = await res.json()
         setDocuments(data)
+        setDocCurrentPage(1)
+        setDocSearchQuery('')
       }
     } catch (err) {
       console.error("Error al cargar documentos:", err)
@@ -427,6 +439,30 @@ function App() {
       setGlossaryMessage('Error de conexión.')
     } finally {
       setSavingGlossary(false)
+    }
+  }
+
+  const handleSemanticSearch = async (e) => {
+    if (e) e.preventDefault()
+    if (!searchQuery.trim()) return
+    setSearching(true)
+    setSearchError('')
+    try {
+      const res = await fetch(`http://localhost:8000/search/?query=${encodeURIComponent(searchQuery)}`, {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSearchResults(data)
+      } else {
+        const errData = await res.json()
+        setSearchError(errData.detail || 'Error al realizar la búsqueda semántica')
+      }
+    } catch (err) {
+      console.error(err)
+      setSearchError('Error de conexión con el servidor')
+    } finally {
+      setSearching(false)
     }
   }
 
@@ -783,6 +819,25 @@ function App() {
     }
   }
 
+  // Filter documents in folder admin view
+  const filteredDocuments = documents.filter(doc => {
+    const query = docSearchQuery.toLowerCase().trim();
+    if (!query) return true;
+    
+    const filenameMatch = doc.filename && doc.filename.toLowerCase().includes(query);
+    const tagsMatch = doc.tags && doc.tags.some(tag => tag.toLowerCase().includes(query));
+    
+    return filenameMatch || tagsMatch;
+  });
+
+  const docsPerPage = 2;
+  const totalDocPages = Math.ceil(filteredDocuments.length / docsPerPage);
+  const activeDocPage = Math.min(docCurrentPage, Math.max(1, totalDocPages));
+  const paginatedDocuments = filteredDocuments.slice(
+    (activeDocPage - 1) * docsPerPage,
+    (activeDocPage - 1) * docsPerPage + docsPerPage
+  );
+
   // LOGIN SCREEN
   if (!user) {
     return (
@@ -834,7 +889,7 @@ function App() {
       {/* TOPBAR HEADER */}
       <div className="topbar">
         <div className="topbar-left">
-          <ShieldAlert size={28} color="#eab308" />
+          <img src="/logo.png" alt="Ejército Argentino Logo" style={{ height: '38px', width: 'auto', objectFit: 'contain' }} />
           <div>
             <span className="topbar-title">Asistente IA - Ejercito Argentino</span>
             <span className="topbar-subtitle">{user.email}</span>
@@ -899,6 +954,12 @@ function App() {
               onClick={() => setActiveTab('glosario')}
             >
               <Database size={18} /> Glosario Base
+            </div>
+            <div 
+              className={`tab-item ${activeTab === 'search' ? 'active' : ''}`}
+              onClick={() => setActiveTab('search')}
+            >
+              <Search size={18} /> Buscador Semántico
             </div>
           </>
         )}
@@ -1165,12 +1226,125 @@ function App() {
           </>
         )}
 
+        {/* VIEW: BUSCADOR SEMANTICO */}
+        {activeTab === 'search' && user.role === 'admin' && (
+          <div className="admin-container">
+            <div className="admin-card" style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <h3 style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--admin-card-border)', paddingBottom: '10px', transition: 'border-color 0.3s' }}>
+                <Search size={20} /> Buscador Semántico de Archivos
+              </h3>
+              <p style={{ fontSize: '0.9rem', color: 'var(--admin-text-muted)', marginBottom: '20px' }}>
+                Busca en todo el sistema utilizando lenguaje natural. La inteligencia artificial convertirá tu consulta en vectores para encontrar los documentos más relevantes por coincidencia semántica, mostrando el porcentaje de similitud y sus etiquetas.
+              </p>
+
+              <form onSubmit={handleSemanticSearch} style={{ display: 'flex', gap: '10px', marginBottom: '30px' }}>
+                <div style={{ flex: 1, position: 'relative' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Escribe palabras clave o conceptos a buscar (ej: Planes de contingencia, regulaciones militares...)" 
+                    style={{ width: '100%', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--admin-input-border)', backgroundColor: 'var(--admin-input-bg)', color: 'var(--admin-text-main)', transition: 'all 0.3s', fontSize: '0.95rem' }}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    required
+                  />
+                </div>
+                <button type="submit" disabled={searching} style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: 600, cursor: searching ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }}>
+                  {searching ? 'Buscando...' : 'Buscar'}
+                </button>
+              </form>
+
+              {searchError && (
+                <div style={{ padding: '12px', borderRadius: '6px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', marginBottom: '20px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                  {searchError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                {searching ? (
+                  <div style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '40px' }}>
+                    <em style={{ fontSize: '0.95rem' }}>Buscando coincidencias semánticas en Qdrant...</em>
+                  </div>
+                ) : searchResults.length > 0 ? (
+                  searchResults.map((result, idx) => {
+                    const matchedFolder = folders.find(f => f.id === result.folder_id);
+                    return (
+                      <div key={idx} style={{ padding: '16px', border: '1px solid var(--admin-card-border)', borderRadius: '10px', background: 'var(--admin-input-bg)', display: 'flex', flexDirection: 'column', gap: '10px', transition: 'all 0.3s' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <FileText size={20} color="var(--admin-text-muted)" />
+                            <div>
+                              <strong style={{ fontSize: '1.05rem', color: 'var(--admin-text-main)' }}>{result.filename}</strong>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', color: 'var(--admin-text-muted)', marginTop: '2px' }}>
+                                <Folder size={12} />
+                                <span>Carpeta: {matchedFolder ? matchedFolder.name : 'General'}</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Match Percentage Badge */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: result.match_percentage >= 80 ? 'rgba(34, 197, 94, 0.15)' : result.match_percentage >= 50 ? 'rgba(234, 179, 8, 0.15)' : 'rgba(100, 116, 139, 0.15)', color: result.match_percentage >= 80 ? '#22c55e' : result.match_percentage >= 50 ? '#eab308' : 'var(--admin-text-muted)', padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 600 }}>
+                            <span>{result.match_percentage}% Coincidencia</span>
+                          </div>
+                        </div>
+
+                        {/* Tags & Actions */}
+                        <div className="search-actions-container">
+                          {/* Tags */}
+                          <div className="search-tags-wrapper">
+                            {result.tags && result.tags.length > 0 ? (
+                              result.tags.map((tag, tagIdx) => (
+                                <span key={tagIdx} style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: '4px', background: 'rgba(2, 132, 199, 0.15)', color: 'var(--primary-color)', fontWeight: 500 }}>
+                                  {tag}
+                                </span>
+                              ))
+                            ) : (
+                              <span style={{ fontSize: '0.8rem', color: 'var(--admin-text-muted)' }}>Sin etiquetas</span>
+                            )}
+                          </div>
+
+                          {/* Actions */}
+                          {result.id && (
+                            <div className="search-buttons-wrapper">
+                              <button 
+                                onClick={() => window.open(`http://localhost:8000/folders/documents/${result.id}/download?inline=true`, '_blank')}
+                                className="btn-action-view"
+                                title="Visualizar documento en nueva pestaña"
+                              >
+                                <Eye size={14} /> Visualizar
+                              </button>
+                              <button 
+                                onClick={() => window.open(`http://localhost:8000/folders/documents/${result.id}/download`, '_blank')}
+                                className="btn-action-download"
+                                title="Descargar documento"
+                              >
+                                <Download size={14} /> Descargar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : searchQuery && !searching ? (
+                  <div style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '40px', border: '1px dashed var(--admin-card-border)', borderRadius: '8px' }}>
+                    No se encontraron documentos con coincidencia semántica para "{searchQuery}".
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '40px', border: '1px dashed var(--admin-card-border)', borderRadius: '8px' }}>
+                    Ingresa una consulta arriba para empezar a buscar documentos en la base de datos vectorial.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* VIEW: ADMINISTRACION (CRUD FOR FOLDERS AND DOCUMENTS) */}
         {activeTab === 'administracion' && user.role === 'admin' && (
-          <div style={{ flex: 1, display: 'flex', padding: '30px', gap: '30px', overflowY: 'auto', backgroundColor: 'var(--admin-bg)', color: 'var(--admin-text-main)', transition: 'background-color 0.3s, color 0.3s' }}>
+          <div className="admin-layout">
             
             {/* Column 1: Manage Folders */}
-            <div style={{ flex: 1, background: 'var(--admin-card-bg)', padding: '24px', borderRadius: '12px', border: '1px solid var(--admin-card-border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', maxHeight: '600px', overflowY: 'auto', transition: 'background-color 0.3s, border-color 0.3s' }}>
+            <div className="admin-card" style={{ flex: 1, maxHeight: '600px', overflowY: 'auto' }}>
               <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--admin-card-border)', paddingBottom: '10px', transition: 'border-color 0.3s' }}>
                 <Folder size={20} /> Administrar Carpetas
               </h3>
@@ -1218,7 +1392,7 @@ function App() {
             </div>
 
             {/* Column 2: Upload Documents to Selected Folder */}
-            <div style={{ flex: 1.5, background: 'var(--admin-card-bg)', padding: '24px', borderRadius: '12px', border: '1px solid var(--admin-card-border)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', transition: 'background-color 0.3s, border-color 0.3s' }}>
+            <div className="admin-card" style={{ flex: 1.5 }}>
               <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--admin-card-border)', paddingBottom: '10px', transition: 'border-color 0.3s' }}>
                 <FileText size={20} /> Documentos de: <span style={{color: 'var(--primary-color)'}}>{activeFolder ? activeFolder.name : 'Ninguna Carpeta Seleccionada'}</span>
               </h3>
@@ -1226,7 +1400,7 @@ function App() {
               {activeFolder ? (
                 <>
                   {/* Upload Form */}
-                  <form onSubmit={handleUploadDocument} style={{ display: 'flex', gap: '12px', marginBottom: '30px', alignItems: 'end' }}>
+                  <form onSubmit={handleUploadDocument} className="responsive-form" style={{ marginBottom: '20px' }}>
                     <div style={{ flex: 1 }}>
                       <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--admin-text-muted)', display: 'block', marginBottom: '4px', transition: 'color 0.3s' }}>Subir PDF, Word o TXT real</label>
                       <input 
@@ -1242,6 +1416,31 @@ function App() {
                       {uploading ? 'Procesando...' : 'Cargar'}
                     </button>
                   </form>
+
+                  {/* Local Search Input */}
+                  <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Buscar por nombre o tag..." 
+                      value={docSearchQuery}
+                      onChange={(e) => {
+                        setDocSearchQuery(e.target.value);
+                        setDocCurrentPage(1);
+                      }}
+                      style={{ flex: 1, padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--admin-input-border)', backgroundColor: 'var(--admin-input-bg)', color: 'var(--admin-text-main)', fontSize: '0.85rem', transition: 'all 0.3s' }}
+                    />
+                    {docSearchQuery && (
+                      <button 
+                        onClick={() => {
+                          setDocSearchQuery('');
+                          setDocCurrentPage(1);
+                        }}
+                        style={{ padding: '8px 12px', background: 'transparent', border: '1px solid var(--admin-card-border)', color: 'var(--admin-text-muted)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
  
                   {/* Document List */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -1249,22 +1448,99 @@ function App() {
                       <div style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '20px', transition: 'color 0.3s' }}>Cargando listado...</div>
                     ) : (
                       <>
-                        {documents.map(doc => (
+                        {paginatedDocuments.map(doc => (
                           <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', border: '1px solid var(--admin-card-border)', borderRadius: '8px', background: 'var(--admin-input-bg)', transition: 'all 0.3s' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <FileText size={16} color="var(--admin-text-muted)" style={{ transition: 'color 0.3s' }} />
-                              <div>
-                                <span>{doc.filename}</span>
-                                <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--admin-text-muted)', transition: 'color 0.3s' }}>{doc.chunk_count} fragmentos vectorizados</span>
+                            <div style={{ display: 'flex', alignItems: 'start', gap: '8px', flex: 1 }}>
+                              <FileText size={16} color="var(--admin-text-muted)" style={{ transition: 'color 0.3s', marginTop: '3px' }} />
+                              <div style={{ flex: 1 }}>
+                                <span style={{ fontWeight: 500, display: 'block' }}>{doc.filename}</span>
+                                <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--admin-text-muted)', transition: 'color 0.3s', marginBottom: doc.tags && doc.tags.length > 0 ? '6px' : '0' }}>{doc.chunk_count} fragmentos vectorizados</span>
+                                {doc.tags && doc.tags.length > 0 && (
+                                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                    {doc.tags.map((tag, tagIdx) => (
+                                      <span key={tagIdx} style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: 'rgba(2, 132, 199, 0.15)', color: 'var(--primary-color)', fontWeight: 500 }}>
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             </div>
-                            <button onClick={() => handleDeleteDocument(doc.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                            <button onClick={() => handleDeleteDocument(doc.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px', alignSelf: 'start', marginTop: '2px' }}>
                               <Trash2 size={16} />
                             </button>
                           </div>
                         ))}
-                        {documents.length === 0 && (
-                          <div style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '30px', transition: 'color 0.3s' }}>No hay documentos cargados en esta carpeta.</div>
+                        
+                        {filteredDocuments.length === 0 && (
+                          <div style={{ textAlign: 'center', color: 'var(--admin-text-muted)', padding: '30px', transition: 'color 0.3s' }}>
+                            {docSearchQuery ? 'No se encontraron documentos coincidentes.' : 'No hay documentos cargados en esta carpeta.'}
+                          </div>
+                        )}
+                        
+                        {/* Pagination Controls */}
+                        {totalDocPages > 1 && (
+                          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '20px', padding: '10px 0' }}>
+                            <button 
+                              disabled={activeDocPage === 1}
+                              onClick={() => setDocCurrentPage(prev => Math.max(1, prev - 1))}
+                              style={{ 
+                                background: activeDocPage === 1 ? 'rgba(0,0,0,0.02)' : 'var(--admin-card-bg)', 
+                                border: '1px solid var(--admin-card-border)', 
+                                color: activeDocPage === 1 ? 'var(--admin-text-muted)' : 'var(--admin-text-main)', 
+                                padding: '6px 12px', 
+                                borderRadius: '6px', 
+                                cursor: activeDocPage === 1 ? 'not-allowed' : 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: 500,
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              Anterior
+                            </button>
+                            
+                            {Array.from({ length: totalDocPages }, (_, i) => i + 1).map(pageNum => (
+                              <button
+                                key={pageNum}
+                                onClick={() => setDocCurrentPage(pageNum)}
+                                style={{
+                                  background: activeDocPage === pageNum ? 'var(--primary-color)' : 'var(--admin-card-bg)',
+                                  border: '1px solid var(--admin-card-border)',
+                                  color: activeDocPage === pageNum ? 'white' : 'var(--admin-text-main)',
+                                  width: '30px',
+                                  height: '30px',
+                                  borderRadius: '6px',
+                                  cursor: 'pointer',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 600,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  transition: 'all 0.2s'
+                                }}
+                              >
+                                {pageNum}
+                              </button>
+                            ))}
+
+                            <button 
+                              disabled={activeDocPage === totalDocPages}
+                              onClick={() => setDocCurrentPage(prev => Math.min(totalDocPages, prev + 1))}
+                              style={{ 
+                                background: activeDocPage === totalDocPages ? 'rgba(0,0,0,0.02)' : 'var(--admin-card-bg)', 
+                                border: '1px solid var(--admin-card-border)', 
+                                color: activeDocPage === totalDocPages ? 'var(--admin-text-muted)' : 'var(--admin-text-main)', 
+                                padding: '6px 12px', 
+                                borderRadius: '6px', 
+                                cursor: activeDocPage === totalDocPages ? 'not-allowed' : 'pointer',
+                                fontSize: '0.8rem',
+                                fontWeight: 500,
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              Siguiente
+                            </button>
+                          </div>
                         )}
                       </>
                     )}
@@ -1282,13 +1558,13 @@ function App() {
 
         {/* VIEW: USUARIOS (ROLES MANAGEMENT) */}
         {activeTab === 'usuarios' && user.role === 'admin' && (
-          <div style={{ flex: 1, padding: '30px', backgroundColor: 'var(--admin-bg)', color: 'var(--admin-text-main)', transition: 'background-color 0.3s, color 0.3s', overflowY: 'auto' }}>
-            <div style={{ background: 'var(--admin-card-bg)', padding: '24px', borderRadius: '12px', border: '1px solid var(--admin-card-border)', maxWidth: '800px', margin: '0 auto', transition: 'background-color 0.3s, border-color 0.3s' }}>
+          <div className="admin-container">
+            <div className="admin-card" style={{ maxWidth: '800px', margin: '0 auto' }}>
               <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--admin-card-border)', paddingBottom: '10px', transition: 'border-color 0.3s' }}>
                 <Users size={20} /> Control de Usuarios y Roles
               </h3>
 
-              <form onSubmit={handleCreateUser} style={{ display: 'flex', gap: '10px', marginBottom: '30px', alignItems: 'end' }}>
+              <form onSubmit={handleCreateUser} className="responsive-form">
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--admin-text-muted)', display: 'block', marginBottom: '4px' }}>Correo Electrónico</label>
                   <input type="email" required style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--admin-input-border)', background: 'var(--admin-input-bg)', color: 'var(--admin-text-main)' }} value={newAuthEmail} onChange={e => setNewAuthEmail(e.target.value)} />
@@ -1309,55 +1585,57 @@ function App() {
                 </button>
               </form>
               
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--admin-table-header-border)', transition: 'border-color 0.3s' }}>
-                    <th style={{ padding: '12px' }}>Email</th>
-                    <th style={{ padding: '12px' }}>Rol</th>
-                    <th style={{ padding: '12px' }}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {systemUsers.map(sysUser => (
-                    <tr key={sysUser.id} style={{ borderBottom: '1px solid var(--admin-table-row-border)', transition: 'border-color 0.3s' }}>
-                      <td style={{ padding: '12px' }}>{sysUser.email} {sysUser.email === user.email && <span style={{ color: '#22c55e', fontSize: '0.8rem', marginLeft: '5px' }}>(Tú)</span>}</td>
-                      <td style={{ padding: '12px' }}>
-                        <select 
-                          value={sysUser.role}
-                          onChange={(e) => handleChangeRole(sysUser.id, e.target.value)}
-                          disabled={sysUser.email === user.email}
-                          style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--admin-input-border)', background: 'var(--admin-input-bg)', color: 'var(--admin-text-main)' }}
-                        >
-                          <option value="user">Usuario</option>
-                          <option value="admin">Administrador</option>
-                        </select>
-                      </td>
-                      <td style={{ padding: '12px', display: 'flex', gap: '8px' }}>
-                        <button 
-                          onClick={() => handleResetUserPassword(sysUser.id)} 
-                          style={{ background: 'transparent', border: 'none', color: '#3b82f6', cursor: 'pointer' }}
-                          title="Cambiar contraseña"
-                        >
-                          <Key size={16} />
-                        </button>
-                        {sysUser.email !== user.email && (
-                          <button onClick={() => handleDeleteUser(sysUser.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </td>
+              <div className="table-responsive">
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid var(--admin-table-header-border)', transition: 'border-color 0.3s' }}>
+                      <th style={{ padding: '12px' }}>Email</th>
+                      <th style={{ padding: '12px' }}>Rol</th>
+                      <th style={{ padding: '12px' }}>Acciones</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {systemUsers.map(sysUser => (
+                      <tr key={sysUser.id} style={{ borderBottom: '1px solid var(--admin-table-row-border)', transition: 'border-color 0.3s' }}>
+                        <td style={{ padding: '12px' }}>{sysUser.email} {sysUser.email === user.email && <span style={{ color: '#22c55e', fontSize: '0.8rem', marginLeft: '5px' }}>(Tú)</span>}</td>
+                        <td style={{ padding: '12px' }}>
+                          <select 
+                            value={sysUser.role}
+                            onChange={(e) => handleChangeRole(sysUser.id, e.target.value)}
+                            disabled={sysUser.email === user.email}
+                            style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--admin-input-border)', background: 'var(--admin-input-bg)', color: 'var(--admin-text-main)' }}
+                          >
+                            <option value="user">Usuario</option>
+                            <option value="admin">Administrador</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: '12px', display: 'flex', gap: '8px' }}>
+                          <button 
+                            onClick={() => handleResetUserPassword(sysUser.id)} 
+                            style={{ background: 'transparent', border: 'none', color: '#3b82f6', cursor: 'pointer' }}
+                            title="Cambiar contraseña"
+                          >
+                            <Key size={16} />
+                          </button>
+                          {sysUser.email !== user.email && (
+                            <button onClick={() => handleDeleteUser(sysUser.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
         {/* VIEW: GLOSARIO MILITAR BASE */}
         {activeTab === 'glosario' && user.role === 'admin' && (
-          <div style={{ flex: 1, padding: '30px', backgroundColor: 'var(--admin-bg)', color: 'var(--admin-text-main)', transition: 'background-color 0.3s, color 0.3s', overflowY: 'auto' }}>
-            <div style={{ background: 'var(--admin-card-bg)', padding: '24px', borderRadius: '12px', border: '1px solid var(--admin-card-border)', maxWidth: '900px', margin: '0 auto', transition: 'background-color 0.3s, border-color 0.3s' }}>
+          <div className="admin-container">
+            <div className="admin-card" style={{ maxWidth: '900px', margin: '0 auto' }}>
               <h3 style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--admin-card-border)', paddingBottom: '10px', transition: 'border-color 0.3s' }}>
                 <Database size={20} /> Glosario y Doctrina Base
               </h3>
@@ -1389,11 +1667,10 @@ function App() {
           </div>
         )}
 
-        {/* VIEW: MI PERFIL (PASSWORD CHANGE) */}
         {activeTab === 'perfil' && (
-          <div style={{ flex: 1, padding: '30px', backgroundColor: 'var(--admin-bg)', color: 'var(--admin-text-main)', transition: 'background-color 0.3s, color 0.3s' }}>
-            <div style={{ background: 'var(--admin-card-bg)', padding: '24px', borderRadius: '12px', border: '1px solid var(--admin-card-border)', maxWidth: '500px', margin: '0 auto', transition: 'background-color 0.3s, border-color 0.3s' }}>
-              <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--admin-card-border)', paddingBottom: '10px', transition: 'border-color 0.3s' }}>
+          <div className="profile-container">
+            <div className="glass-card" style={{ maxWidth: '500px', margin: '0 auto' }}>
+              <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '10px', transition: 'border-color 0.3s' }}>
                 <Settings size={20} /> Mi Perfil
               </h3>
 
@@ -1410,12 +1687,12 @@ function App() {
                   </div>
                 )}
                 <div>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--admin-text-muted)', display: 'block', marginBottom: '4px' }}>Contraseña Actual</label>
-                  <input type="password" required style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--admin-input-border)', background: 'var(--admin-input-bg)', color: 'var(--admin-text-main)' }} value={passwordChangeOld} onChange={e => setPasswordChangeOld(e.target.value)} />
+                  <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'rgba(255, 255, 255, 0.7)', display: 'block', marginBottom: '4px' }}>Contraseña Actual</label>
+                  <input type="password" required style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.15)', background: 'rgba(9, 13, 22, 0.6)', color: '#f8fafc' }} value={passwordChangeOld} onChange={e => setPasswordChangeOld(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--admin-text-muted)', display: 'block', marginBottom: '4px' }}>Nueva Contraseña</label>
-                  <input type="password" required style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--admin-input-border)', background: 'var(--admin-input-bg)', color: 'var(--admin-text-main)' }} value={passwordChangeNew} onChange={e => setPasswordChangeNew(e.target.value)} />
+                  <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'rgba(255, 255, 255, 0.7)', display: 'block', marginBottom: '4px' }}>Nueva Contraseña</label>
+                  <input type="password" required style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid rgba(255, 255, 255, 0.15)', background: 'rgba(9, 13, 22, 0.6)', color: '#f8fafc' }} value={passwordChangeNew} onChange={e => setPasswordChangeNew(e.target.value)} />
                 </div>
                 <button type="submit" style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
                   Actualizar Contraseña
