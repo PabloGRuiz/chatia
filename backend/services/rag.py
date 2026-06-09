@@ -131,7 +131,96 @@ async def rerank_documents(query: str, docs: List[Dict[str, Any]], top_n: int = 
         print(f"Error rerankeando con Cohere: {e}")
         return docs[:top_n]
 
+import re
+from bson import ObjectId
+
+def detect_document_search_intent(query: str) -> bool:
+    """
+    Detecta si el usuario tiene la intención explícita de buscar archivos,
+    documentos, leyes o reglamentos en la base de datos de manera directa.
+    Ejemplos: "¿En qué archivo...", "¿Qué ley...", "dónde se menciona...", etc.
+    """
+    query_clean = query.lower().strip()
+    
+    # Patrones para identificar búsquedas explícitas de documentos
+    intent_patterns = [
+        r"\ben\s+(qu[eé]|cual|cu[aá]les)\s+(documento|archivo|pdf|txt|docx|carpeta|ley|reglamento)\b",
+        r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)\s+(habla|menciona|trata|dice|es)\b",
+        r"\bd[oó]nde\s+(se\s+)?(menciona|dice|habla|nombra|encuentra|lee|cita)\b",
+        r"\b(buscar|encuentra|dame|mu[eé]strame)\s+(el|los|un)?\s*(documento|archivo|pdf|txt|docx|ley|reglamento)\b",
+        r"\b(en\s+)?qu[eé]\s+parte\s+del?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)\b",
+        r"\b(tienes|hay)\s+(alg[uú]n|el|un)?\s*(documento|archivo|ley|reglamento)\b"
+    ]
+    
+    for pattern in intent_patterns:
+        if re.search(pattern, query_clean):
+            return True
+            
+    return False
+
 async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] = None, user_role: str = "user") -> str:
+    # 0. Cortocircuito para búsqueda de archivos si se detecta intención
+    if detect_document_search_intent(query):
+        try:
+            from services.search_whoosh import search_keywords
+            whoosh_matches = search_keywords(query, folder_id=folder_id, filenames=filenames, limit=6, markdown_highlights=True)
+        except Exception as e:
+            print(f"Error buscando por palabras clave en Whoosh para cortocircuito: {e}")
+            whoosh_matches = []
+            
+        db = get_database()
+        
+        if whoosh_matches:
+            # Agrupar coincidencias por documento
+            grouped_matches = {}  # (folder_id, filename) -> list of snippets
+            for match in whoosh_matches:
+                key = (match["folder_id"], match["filename"])
+                if key not in grouped_matches:
+                    grouped_matches[key] = []
+                # Evitar agregar fragmentos idénticos
+                s = match["snippet"].strip()
+                if s not in grouped_matches[key]:
+                    grouped_matches[key].append(s)
+            
+            response_parts = ["He encontrado coincidencias exactas para tu búsqueda en los siguientes documentos:\n"]
+            for idx, ((fid, fname), snippets) in enumerate(grouped_matches.items()):
+                folder_doc = await db.folders.find_one({"_id": ObjectId(fid)}) if fid else None
+                folder_name = folder_doc.get("name") if folder_doc else "General"
+                
+                response_parts.append(f"{idx+1}. Documento: **{fname}** (Carpeta: *{folder_name}*):")
+                for snippet in snippets:
+                    response_parts.append(f"   > ... {snippet} ...\n")
+            
+            response_parts.append("\n¿Deseas que profundice en el contenido de alguno de estos documentos o tienes otra pregunta?")
+            return "\n".join(response_parts)
+        else:
+            # Fallback semántico (Qdrant) si Whoosh no encuentra nada, pero formateado de forma directa
+            qdrant_matches = await search_qdrant(query, folder_id=folder_id, filenames=filenames, top_k=6)
+            if qdrant_matches:
+                # Agrupar por documento
+                grouped_matches = {}
+                for match in qdrant_matches:
+                    key = (match["folder_id"], match["filename"])
+                    if key not in grouped_matches:
+                        grouped_matches[key] = []
+                    s = match["text"][:250].strip() + "..."
+                    if s not in grouped_matches[key]:
+                        grouped_matches[key].append(s)
+                
+                response_parts = ["No encontré coincidencias exactas, pero he hallado estos fragmentos relacionados por concepto:\n"]
+                for idx, ((fid, fname), snippets) in enumerate(grouped_matches.items()):
+                    folder_doc = await db.folders.find_one({"_id": ObjectId(fid)}) if fid else None
+                    folder_name = folder_doc.get("name") if folder_doc else "General"
+                    
+                    response_parts.append(f"{idx+1}. Documento: **{fname}** (Carpeta: *{folder_name}*):")
+                    for snippet in snippets:
+                        response_parts.append(f"   > ... {snippet} ...\n")
+                
+                response_parts.append("\n¿Deseas que responda una pregunta en base a estos textos o prefieres buscar algo diferente?")
+                return "\n".join(response_parts)
+                
+            return "No he encontrado ningún documento en la base de datos que mencione esos términos de búsqueda."
+
     # 1. Recuperar de Qdrant (buscamos un top_k más alto para luego rerankear y no perder contexto)
     docs = await search_qdrant(query, folder_id, filenames, top_k=20)
     

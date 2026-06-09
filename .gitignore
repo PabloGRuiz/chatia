@@ -25,3 +25,8 @@ dist-ssr
 
 # Runtime uploads
 backend/uploads/
+
+# Local environment variables and databases
+.env
+backend/whoosh_index/
+

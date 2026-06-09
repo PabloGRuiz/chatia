@@ -12,6 +12,29 @@ async def lifespan(app: FastAPI):
         await seed_users()
     except Exception as e:
         print(f"Error seeding users: {e}")
+        
+    # Reindexar fragmentos existentes en Whoosh para sincronización
+    try:
+        from database import get_database
+        from services.search_whoosh import index_document_chunks
+        db = get_database()
+        print("Sincronizando índice de Whoosh con MongoDB...")
+        cursor = db.document_chunks.find({})
+        chunks_map = {} # (folder_id, filename) -> list of (chunk_index, text)
+        async for chunk_doc in cursor:
+            key = (chunk_doc["folder_id"], chunk_doc["filename"])
+            if key not in chunks_map:
+                chunks_map[key] = []
+            chunks_map[key].append((chunk_doc["chunk_index"], chunk_doc.get("text", "")))
+            
+        for (folder_id, filename), chunks_list in chunks_map.items():
+            chunks_list.sort(key=lambda x: x[0])
+            sorted_chunks = [c[1] for c in chunks_list]
+            index_document_chunks(folder_id, filename, sorted_chunks)
+        print("Sincronización de Whoosh finalizada.")
+    except Exception as e:
+        print(f"Error al sincronizar Whoosh: {e}")
+        
     yield
     await close_db_connection()
 

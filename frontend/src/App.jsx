@@ -1287,6 +1287,11 @@ function App() {
                           </div>
                         </div>
 
+                        {/* Snippet / Resumen */}
+                        {result.snippet && (
+                          <div className="search-result-snippet" dangerouslySetInnerHTML={{ __html: result.snippet }} />
+                        )}
+
                         {/* Tags & Actions */}
                         <div className="search-actions-container">
                           {/* Tags */}

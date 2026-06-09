@@ -18,6 +18,8 @@ pypdf
 pdfplumber
 python-docx
 langchain-text-splitters
+whoosh
+
 
 
 

@@ -81,6 +81,13 @@ async def delete_document(doc_id: str, current_user: dict = Depends(get_admin_us
         except Exception as e:
             print(f"Error borrando archivo físico {file_path}: {e}")
             
+    # 1.8 Eliminar del índice Whoosh
+    try:
+        from services.search_whoosh import delete_document_index
+        delete_document_index(folder_id, filename)
+    except Exception as e:
+        print(f"Error eliminando de Whoosh: {e}")
+
     # 2. Eliminar chunks de MongoDB
     await db.document_chunks.delete_many({"document_id": doc_id})
 

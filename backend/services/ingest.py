@@ -163,6 +163,13 @@ async def process_and_index_file(file_bytes: bytes, filename: str, folder_id: st
     # Subir puntos a Qdrant en lotes
     qdrant.upsert(collection_name="documents", points=points)
 
+    # 5.5 Generar índice en Whoosh para búsqueda exacta y resúmenes
+    try:
+        from services.search_whoosh import index_document_chunks
+        index_document_chunks(folder_id, filename, chunks)
+    except Exception as e:
+        print(f"Error indexando fragmentos en Whoosh: {e}")
+
     # 6. Registrar documento en MongoDB para auditoría y administración
     doc_metadata = {
         "filename": filename,

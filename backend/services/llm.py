@@ -11,7 +11,8 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
 def get_llm():
     # langchain_community.llms.Ollama se conecta al puerto de ollama
-    return Ollama(base_url=OLLAMA_URL, model=LLM_MODEL)
+    # Aumentamos el timeout a 300 segundos para dar tiempo a cargar el modelo en CPU
+    return Ollama(base_url=OLLAMA_URL, model=LLM_MODEL, timeout=300)
 
 def get_embeddings():
     return OllamaEmbeddings(base_url=OLLAMA_URL, model=EMBED_MODEL)
