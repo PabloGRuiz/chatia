@@ -29,4 +29,6 @@ backend/uploads/
 # Local environment variables and databases
 .env
 backend/whoosh_index/
+backend/flashrank_cache/
+
 

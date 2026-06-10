@@ -106,30 +106,84 @@ async def search_qdrant(query: str, folder_id: str = None, filenames: List[str] 
         print(f"Error buscando en Qdrant: {e}")
         return []
 
+# Intento de importar flashrank. Si no está instalado, se manejará de forma segura.
+try:
+    from flashrank import Ranker, RerankRequest
+    _flashrank_ranker = None
+except ImportError:
+    Ranker = None
+    _flashrank_ranker = None
+
+def get_flashrank_ranker():
+    global _flashrank_ranker
+    if _flashrank_ranker is None and Ranker is not None:
+        try:
+            cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "flashrank_cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            # Usamos el modelo ms-marco-MiniLM-L-12-v2 que tiene buen soporte multilingüe y de español
+            _flashrank_ranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir=cache_dir)
+        except Exception as e:
+            print(f"Error inicializando FlashRank: {e}")
+            _flashrank_ranker = None
+    return _flashrank_ranker
+
 async def rerank_documents(query: str, docs: List[Dict[str, Any]], top_n: int = 3) -> List[Dict[str, Any]]:
-    if not COHERE_API_KEY or not docs or not cohere:
-        # Si no hay API key o no está instalada la librería, devolvemos el top original
-        return docs[:top_n]
-        
-    try:
-        co = cohere.Client(COHERE_API_KEY)
-        documents = [doc["text"] for doc in docs]
-        response = await asyncio.to_thread(
-            co.rerank,
-            model="rerank-multilingual-v2.0",
-            query=query,
-            documents=documents,
-            top_n=top_n
-        )
-        
-        reranked_docs = []
-        for result in response.results:
-            idx = result.index
-            reranked_docs.append(docs[idx])
-        return reranked_docs
-    except Exception as e:
-        print(f"Error rerankeando con Cohere: {e}")
-        return docs[:top_n]
+    if not docs:
+        return []
+
+    # 1. Intentar usar FlashRank local primero (offline y rápido en CPU)
+    ranker = get_flashrank_ranker()
+    if ranker is not None:
+        try:
+            passages = []
+            for idx, doc in enumerate(docs):
+                passages.append({
+                    "id": idx,  # guardamos el índice original como ID
+                    "text": doc["text"]
+                })
+            
+            # Ejecutar rerank en un hilo para no bloquear el loop asíncrono
+            results = await asyncio.to_thread(
+                ranker.rerank,
+                query=query,
+                passages=passages
+            )
+            
+            reranked_docs = []
+            for res in results[:top_n]:
+                orig_idx = int(res["id"])
+                orig_doc = docs[orig_idx]
+                orig_doc["rerank_score"] = float(res["score"])
+                reranked_docs.append(orig_doc)
+                
+            return reranked_docs
+        except Exception as e:
+            print(f"Error rerankeando con FlashRank: {e}")
+            # Fallback si falla
+
+    # 2. Fallback a Cohere si no está disponible FlashRank pero hay API key
+    if COHERE_API_KEY and cohere:
+        try:
+            co = cohere.Client(COHERE_API_KEY)
+            documents = [doc["text"] for doc in docs]
+            response = await asyncio.to_thread(
+                co.rerank,
+                model="rerank-multilingual-v2.0",
+                query=query,
+                documents=documents,
+                top_n=top_n
+            )
+            
+            reranked_docs = []
+            for result in response.results:
+                idx = result.index
+                reranked_docs.append(docs[idx])
+            return reranked_docs
+        except Exception as e:
+            print(f"Error rerankeando con Cohere: {e}")
+            
+    # Si todo falla, devolver los primeros top_n sin reordenar
+    return docs[:top_n]
 
 import re
 from bson import ObjectId
@@ -224,8 +278,8 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
     # 1. Recuperar de Qdrant (buscamos un top_k más alto para luego rerankear y no perder contexto)
     docs = await search_qdrant(query, folder_id, filenames, top_k=20)
     
-    # 2. Rerankear con Cohere (opcional, pasamos más documentos)
-    reranked_docs = await rerank_documents(query, docs, top_n=8)
+    # 2. Rerankear (local con FlashRank, fallback a Cohere)
+    reranked_docs = await rerank_documents(query, docs, top_n=3)
     
     # 3. Recuperar el Glosario Base Militar de MongoDB
     db = get_database()

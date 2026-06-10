@@ -77,11 +77,11 @@ async def process_and_index_file(file_bytes: bytes, filename: str, folder_id: st
     text = ""
     try:
         if ext == ".pdf":
-            text = extract_text_from_pdf(file_path)
+            text = await asyncio.to_thread(extract_text_from_pdf, file_path)
         elif ext in [".doc", ".docx"]:
-            text = extract_text_from_docx(file_path)
+            text = await asyncio.to_thread(extract_text_from_docx, file_path)
         elif ext in [".txt"]:
-            text = extract_text_from_txt(file_path)
+            text = await asyncio.to_thread(extract_text_from_txt, file_path)
         else:
             raise ValueError(f"Extensión de archivo no soportada: {ext}")
     except Exception as e:
@@ -138,35 +138,40 @@ async def process_and_index_file(file_bytes: bytes, filename: str, folder_id: st
             vectors_config=qd_models.VectorParams(size=768, distance=qd_models.Distance.COSINE) # nomic-embed-text usa 768
         )
 
-    # 5. Generar embeddings e insertar en Qdrant
+    # 5. Generar embeddings en lote asíncrono
+    try:
+        vectors = await embeddings.aembed_documents(chunks)
+    except Exception as e:
+        print(f"Error generando embeddings con Ollama: {e}")
+        raise RuntimeError("Error al comunicarse con Ollama para generar embeddings.")
+
     points = []
-    for idx, chunk in enumerate(chunks):
+    for idx, (chunk, vector) in enumerate(zip(chunks, vectors)):
         point_id = str(uuid.uuid4())
-        try:
-            vector = embeddings.embed_query(chunk)
-            points.append(
-                qd_models.PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload={
-                        "folder_id": folder_id,
-                        "filename": filename,
-                        "text": chunk,
-                        "chunk_index": idx
-                    }
-                )
+        points.append(
+            qd_models.PointStruct(
+                id=point_id,
+                vector=vector,
+                payload={
+                    "folder_id": folder_id,
+                    "filename": filename,
+                    "text": chunk,
+                    "chunk_index": idx
+                }
             )
-        except Exception as e:
-            print(f"Error generando embedding para el fragmento {idx}: {e}")
-            raise RuntimeError("Error al comunicarse con Ollama para generar embeddings.")
+        )
 
-    # Subir puntos a Qdrant en lotes
-    qdrant.upsert(collection_name="documents", points=points)
+    # Subir puntos a Qdrant en lote (no bloqueante)
+    try:
+        await asyncio.to_thread(qdrant.upsert, collection_name="documents", points=points)
+    except Exception as e:
+        print(f"Error subiendo puntos a Qdrant: {e}")
+        raise RuntimeError("Error al guardar vectores en Qdrant.")
 
-    # 5.5 Generar índice en Whoosh para búsqueda exacta y resúmenes
+    # 5.5 Generar índice en Whoosh para búsqueda exacta y resúmenes (no bloqueante)
     try:
         from services.search_whoosh import index_document_chunks
-        index_document_chunks(folder_id, filename, chunks)
+        await asyncio.to_thread(index_document_chunks, folder_id, filename, chunks)
     except Exception as e:
         print(f"Error indexando fragmentos en Whoosh: {e}")
 
