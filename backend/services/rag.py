@@ -211,13 +211,13 @@ async def detect_document_search_intent(query: str) -> bool:
     # 2. Si no hay en DB, usar las por defecto
     if not intent_patterns:
         intent_patterns = [
-            r"\ben\s+(qu[eé]|cual|cu[aá]les)\s+(documento|archivo|pdf|txt|docx|carpeta|ley|reglamento)s?\b",
-            r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(hablan|habla|mencionan|menciona|tratan|trata|dicen|dice|son|es)\b",
+            r"\ben\s+(qu[eé]|cual|cu[aá]les)\s+(todos\s+|todas\s+|todo\s+)?(los\s+|las\s+)?(documento|archivo|pdf|txt|docx|carpeta|ley|reglamento)s?\b",
+            r"\bqu[eé]\s+(todos\s+|todas\s+|todo\s+)?(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(hablan|habla|mencionan|menciona|tratan|trata|dicen|dice|son|es)\b",
             r"\bd[oó]nde\s+(se\s+)?(mencionan|menciona|dicen|dice|hablan|habla|nombran|nombra|encuentran|encuentra|leen|lee|citan|cita)\b",
-            r"\b(buscar|encuentra|dame|mu[eé]strame)\s+(el|los|un|una|unas|unos)?\s*(documento|archivo|pdf|txt|docx|ley|reglamento)s?\b",
+            r"\b(buscar|encuentra|dame|mu[eé]strame)\s+(todos\s+|todas\s+|todo\s+)?(el|los|un|una|unas|unos)?\s*(documento|archivo|pdf|txt|docx|ley|reglamento)s?\b",
             r"\b(en\s+)?qu[eé]\s+parte\s+del?s?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\b",
             r"\b(tienes|hay)\s+(alg[uú]n|algunos|el|los|un|una|unos|unas)?\s*(documento|archivo|ley|reglamento)s?\b",
-            r"\bcu[aá]les?\s+(son\s+|est[aá]n\s+)?(los\s+)?(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\b",
+            r"\bcu[aá]les?\s+(son\s+|est[aá]n\s+)?(todos\s+|todas\s+|todo\s+)?(los\s+|las\s+)?(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\b",
             r"\bcu[aá]les?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(son\s+|est[aá]n\s+)?(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\b",
             r"\b(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\s+a\b",
             r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(est[aá]n\s+)?(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\s+(con|a)\b"
@@ -259,9 +259,98 @@ async def get_source_documents_metadata(unique_docs: List[tuple]) -> List[Dict[s
             print(f"Error recuperando metadatos para {filename}: {e}")
     return source_docs
 
+async def detect_referred_filenames(query: str, db, folder_id: str = None) -> list[str]:
+    """
+    Analiza la consulta del usuario para identificar si menciona explícitamente
+    uno o más archivos cargados en la base de datos (por ejemplo, 'Anexo 6', 'Ley 19.101',
+    'Invasiones Inglesas'). Retorna la lista de nombres de archivos coincidentes.
+    """
+    query_clean = query.lower()
+    
+    query_filter = {}
+    if folder_id:
+        query_filter["folder_id"] = folder_id
+        
+    cursor = db.documents.find(query_filter, {"filename": 1})
+    db_filenames = []
+    async for doc in cursor:
+        if "filename" in doc and doc["filename"] not in db_filenames:
+            db_filenames.append(doc["filename"])
+            
+    if not db_filenames:
+        return []
+        
+    STOP_WORDS = {
+        'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'y', 'con', 'en', 
+        'para', 'por', 'que', 'es', 'son', 'esta', 'estan', 'documento', 'documentos', 'archivo', 
+        'archivos', 'pdf', 'txt', 'docx', 'carpeta', 'carpetas', 'relacionado', 'relacionados', 
+        'asociado', 'asociados', 'vinculado', 'vinculados', 'sobre', 'cuales', 'cual', 'donde', 
+        'como', 'informacion', 'apendice', 'apendices', 'suplemento', 'suplementos', 'agregado', 'agregados'
+    }
+    
+    matched_filenames = []
+    words = query_clean.split()
+    
+    for filename in db_filenames:
+        filename_clean = filename.lower().rsplit(".", 1)[0]
+        
+        found = False
+        # A. Comparación de frases de 2 palabras consecutivas
+        for i in range(len(words) - 1):
+            w1 = re.sub(r"[^\w]", "", words[i])
+            w2 = re.sub(r"[^\w]", "", words[i+1])
+            if not w1 or not w2:
+                continue
+            if w1 in STOP_WORDS and w2 in STOP_WORDS:
+                continue
+            phrase = w1 + " " + w2
+            if phrase in filename_clean:
+                matched_filenames.append(filename)
+                found = True
+                break
+                
+        if found:
+            continue
+            
+        # B. Comparación de palabra única muy específica (longitud > 5, no stop word)
+        for w in words:
+            w_clean = re.sub(r"[^\w]", "", w)
+            if len(w_clean) > 5 and w_clean not in STOP_WORDS and w_clean in filename_clean:
+                matched_filenames.append(filename)
+                break
+                
+    return matched_filenames
+
 async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] = None, user_role: str = "user") -> tuple[str, List[Dict[str, Any]]]:
+    db = get_database()
+    
+    # Intentar detectar automáticamente si la consulta se refiere a archivos específicos
+    if not filenames:
+        detected_files = await detect_referred_filenames(query, db, folder_id)
+        if detected_files:
+            filenames = detected_files
+            print(f"Archivos detectados automáticamente en la consulta: {filenames}")
+
     # 0. Cortocircuito para búsqueda de archivos si se detecta intención
     if await detect_document_search_intent(query):
+        # Si la consulta se refiere a archivos específicos y los detectamos por nombre,
+        # y es una pregunta global para listar/buscar archivos, los listamos directamente sin demora.
+        if filenames and any(x in query.lower() for x in ["cuales", "lista", "buscar", "dame", "mostrar", "ver", "relacionado", "relacionados"]):
+            response_parts = ["He encontrado los siguientes documentos relacionados con tu búsqueda en el sistema:\n"]
+            for idx, fname in enumerate(filenames):
+                doc_meta = await db.documents.find_one({"filename": fname})
+                fid = str(doc_meta["folder_id"]) if doc_meta else None
+                folder_doc = await db.folders.find_one({"_id": ObjectId(fid)}) if fid else None
+                folder_name = folder_doc.get("name") if folder_doc else "General"
+                response_parts.append(f"{idx+1}. Documento: **{fname}** (Carpeta: *{folder_name}*)")
+            
+            response_parts.append("\n¿Deseas visualizar alguno de ellos o realizar otra consulta?")
+            
+            unique_docs = [(str(doc_meta["folder_id"]) if doc_meta else None, fname) for fname in filenames]
+            unique_docs = [u for u in unique_docs if u[0] is not None]
+            source_docs = await get_source_documents_metadata(unique_docs)
+            return "\n".join(response_parts), source_docs
+
         try:
             from services.search_whoosh import search_keywords
             whoosh_matches = search_keywords(query, folder_id=folder_id, filenames=filenames, limit=6, markdown_highlights=True)
