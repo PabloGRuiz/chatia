@@ -55,6 +55,7 @@ Antes de preguntar, puedes definir el contexto de la conversación utilizando la
 ### Detección Automática de Intenciones (Bypass instantáneo)
 El asistente incluye un motor inteligente para agilizar consultas directas de archivos:
 * Si preguntas algo como *"¿En qué documento se habla de San Martín?"* o *"¿Qué archivo contiene la doctrina militar?"*, el sistema detecta que buscas la ubicación de la información en lugar de una redacción compleja.
+* **Identificación Automática de Archivos en Consultas:** Si tu pregunta hace referencia a un documento cargado en la base de datos (por ejemplo, preguntando *"Qué se dice en el Anexo 6..."* o *"Cuáles son todos los archivos relacionados con el Anexo 6"*), el asistente extraerá e identificará la referencia de forma inteligente en tu texto, limitando automáticamente la búsqueda únicamente a dicho documento. Esto asegura la máxima precisión y rapidez de respuesta sin requerir que selecciones el archivo a mano en la barra lateral.
 * **Configuración Dinámica:** Los administradores disponen de una pestaña llamada **"Ajustes Detector"** en el panel lateral, desde la cual pueden ver la lista completa de frases e incluso añadir nuevos términos o expresiones regulares avanzadas en tiempo real.
 * **Beneficio:** Evita procesar la respuesta mediante el LLM (ahorrando tiempo y uso de hardware). El chatbot te devolverá de forma **instantánea** la lista de documentos y los fragmentos exactos agrupados por archivo, con las palabras buscadas resaltadas en negrita (`**`).
 

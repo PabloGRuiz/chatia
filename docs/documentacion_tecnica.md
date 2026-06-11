@@ -173,6 +173,13 @@ El endpoint `/search/` realiza búsquedas combinadas:
 
 Cuando se realiza una pregunta en el chat, la cadena de ejecución en `backend/services/rag.py` sigue estos pasos:
 
+### Paso 0: Identificación y Acotación Automática de Archivos
+Si la lista de archivos de búsqueda (`filenames`) está vacía (el usuario no seleccionó archivos manualmente en la barra lateral), se realiza un análisis automático sobre el texto de la consulta:
+* **Función `detect_referred_filenames(query, db, folder_id)`**:
+  * Recupera los nombres de todos los archivos disponibles en MongoDB.
+  * Compara la consulta del usuario contra los nombres de los archivos limpios (sin extensión) buscando coincidencia de frases consecutivas de 2 palabras (ej. *"anexo 6"*) o palabras únicas muy específicas (longitud > 5, ej. *"invasiones"*), omitiendo términos comunes e instrumentales (*STOP_WORDS*).
+  * Si detecta coincidencias, restringe el parámetro `filenames` únicamente a estos documentos. Esto optimiza tanto el bypass de intenciones como la recuperación semántica del pipeline RAG tradicional, enfocando las búsquedas únicamente en los documentos de interés del usuario de forma automática.
+
 ### Paso 1: Detector de Intenciones (Bypass de LLM)
 Antes de invocar modelos pesados, se ejecuta la función asíncrona: `await detect_document_search_intent(query)`.
 * **Propósito:** Captura preguntas de búsqueda de archivos (ej. *"¿En qué documento habla de..."*, *"cuáles son los archivos relacionados a..."*).
@@ -180,7 +187,8 @@ Antes de invocar modelos pesados, se ejecuta la función asíncrona: `await dete
 * **Evaluación Híbrida de Coincidencia:**
   * Si el patrón contiene caracteres especiales (como `\b`, `\s`, `\w`), se evalúa mediante una expresión regular compilada (`re.search`).
   * Si el patrón es texto plano, se evalúa mediante una búsqueda literal rápida (case-insensitive) como subcadena en la consulta del usuario.
-* **Flujo:** Si coincide con algún patrón, realiza una búsqueda rápida en Whoosh/Qdrant, **agrupa los fragmentos por documento en memoria**, recolecta los metadatos de los documentos de referencia (`get_source_documents_metadata`) y responde de inmediato al chat con formato Markdown (`**`), saltando la consulta a Ollama (tiempo de respuesta: **< 0.1 segundos**).
+* **Bypass Directo por Nombre de Archivo:** Si se detectan nombres de archivos en el Paso 0 y la consulta es una intención de búsqueda/listado global (ej. *"Cuáles son todos los archivos relacionados con el Anexo 6"*), el sistema lista directamente dichos documentos recuperando sus metadatos de MongoDB y finaliza de manera instantánea (tiempo de respuesta: **0.01 segundos**), evitando búsquedas de fragmentos redundantes e inferencia.
+* **Bypass Híbrido Tradicional:** Si no es un listado directo pero coincide con la intención, realiza una búsqueda rápida en Whoosh/Qdrant, **agrupa los fragmentos por documento en memoria**, recolecta los metadatos de los documentos de referencia (`get_source_documents_metadata`) y responde de inmediato al chat con formato Markdown (`**`), saltando la consulta a Ollama (tiempo de respuesta: **< 0.1 segundos**).
 
 ### Paso 2: Recuperación e Inferencia
 Si no se detecta la intención del Paso 1, continúa el pipeline RAG tradicional:
