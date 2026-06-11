@@ -45,7 +45,7 @@ services:
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
       - JWT_SECRET=${JWT_SECRET:-supersecretkey_cambiar_en_produccion}
       - LLM_MODEL=${LLM_MODEL:-llama3.1}
-      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - EMBED_MODEL=${EMBED_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
       - COHERE_API_KEY=${COHERE_API_KEY:-}
     depends_on:
       - mongodb

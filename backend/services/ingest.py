@@ -1,10 +1,12 @@
 import os
 import uuid
 import tempfile
+import io
 from typing import List
 from docx import Document
 from pypdf import PdfReader
 import pdfplumber
+from PIL import Image
 
 from database import get_qdrant, get_database
 from services.llm import get_embeddings, get_llm
@@ -14,6 +16,38 @@ from qdrant_client.http import models as qd_models
 import datetime
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+
+def ocr_pdf(file_path: str) -> str:
+    try:
+        import fitz  # PyMuPDF
+        import pytesseract
+    except ImportError:
+        print("Error: PyMuPDF (pymupdf) o pytesseract no están instalados. No se puede realizar OCR.")
+        return ""
+        
+    text = ""
+    try:
+        doc = fitz.open(file_path)
+        print(f"Iniciando OCR para el PDF: {file_path} ({len(doc)} páginas)...")
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            # Usar un zoom de 2.0x para obtener buena calidad de imagen sin exceder el tiempo de procesamiento
+            zoom = 2.0
+            mat = fitz.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=mat)
+            
+            # Obtener bytes de imagen e instanciar en PIL
+            img_data = pix.tobytes("png")
+            image = Image.open(io.BytesIO(img_data))
+            
+            # Ejecutar OCR con idiomas español e inglés
+            page_text = pytesseract.image_to_string(image, lang="spa+eng")
+            if page_text.strip():
+                text += f"\n--- Página {page_num + 1} (OCR) ---\n" + page_text + "\n"
+        print("OCR finalizado exitosamente.")
+    except Exception as e:
+        print(f"Error durante el OCR del PDF: {e}")
+    return text
 
 def extract_text_from_pdf(file_path: str) -> str:
     text = ""
@@ -78,6 +112,9 @@ async def process_and_index_file(file_bytes: bytes, filename: str, folder_id: st
     try:
         if ext == ".pdf":
             text = await asyncio.to_thread(extract_text_from_pdf, file_path)
+            if not text.strip():
+                print("No se pudo extraer texto seleccionable del PDF. Intentando OCR local...")
+                text = await asyncio.to_thread(ocr_pdf, file_path)
         elif ext in [".doc", ".docx"]:
             text = await asyncio.to_thread(extract_text_from_docx, file_path)
         elif ext in [".txt"]:
@@ -94,7 +131,7 @@ async def process_and_index_file(file_bytes: bytes, filename: str, folder_id: st
         # Si el texto está vacío, también eliminamos el archivo guardado
         if os.path.exists(file_path):
             os.remove(file_path)
-        raise ValueError("No se pudo extraer texto del archivo (el archivo podría estar vacío o escaneado sin OCR).")
+        raise ValueError("No se pudo extraer texto del archivo. El archivo podría estar vacío, escaneado sin texto seleccionable, o el motor de OCR local no está disponible/configurado.")
 
     # 1.5 Generar etiquetas automáticamente (síncrono)
     tags = []
@@ -135,7 +172,7 @@ async def process_and_index_file(file_bytes: bytes, filename: str, folder_id: st
     if not exists:
         qdrant.create_collection(
             collection_name="documents",
-            vectors_config=qd_models.VectorParams(size=768, distance=qd_models.Distance.COSINE) # nomic-embed-text usa 768
+            vectors_config=qd_models.VectorParams(size=384, distance=qd_models.Distance.COSINE) # MiniLM usa 384
         )
 
     # 5. Generar embeddings en lote asíncrono

@@ -864,6 +864,15 @@ function App() {
   const handleUploadDocument = async (e) => {
     e.preventDefault()
     if (selectedFiles.length === 0 || !activeFolder) return
+
+    // Validar el tamaño total de los archivos (Máx 100MB)
+    const totalSize = selectedFiles.reduce((sum, file) => sum + file.size, 0)
+    const MAX_TOTAL_SIZE = 100 * 1024 * 1024 // 100 MB
+    if (totalSize > MAX_TOTAL_SIZE) {
+      alert(`El tamaño total de los archivos (${(totalSize / (1024 * 1024)).toFixed(2)} MB) excede el límite máximo permitido de 100 MB.`)
+      return
+    }
+
     setUploading(true)
 
     const formData = new FormData()
@@ -1549,7 +1558,7 @@ function App() {
                   {/* Upload Form */}
                   <form onSubmit={handleUploadDocument} className="responsive-form" style={{ marginBottom: '20px' }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--admin-text-muted)', display: 'block', marginBottom: '4px', transition: 'color 0.3s' }}>Subir PDF, Word o TXT (Máx 10MB c/u)</label>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--admin-text-muted)', display: 'block', marginBottom: '4px', transition: 'color 0.3s' }}>Subir PDF, Word o TXT (Máx 100MB en total)</label>
                       <input 
                         id="file-input"
                         type="file" 

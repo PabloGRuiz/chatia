@@ -81,7 +81,7 @@ async def search_qdrant(query: str, folder_id: str = None, filenames: List[str] 
             await asyncio.to_thread(
                 qdrant.create_collection,
                 collection_name="documents",
-                vectors_config=qd_models.VectorParams(size=768, distance=qd_models.Distance.COSINE) # Nomic usa 768
+                vectors_config=qd_models.VectorParams(size=384, distance=qd_models.Distance.COSINE) # MiniLM usa 384
             )
             return []
             

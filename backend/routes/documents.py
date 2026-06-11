@@ -25,7 +25,7 @@ async def list_documents(folder_id: str):
 
 @router.post("/{folder_id}/documents/upload")
 async def upload_documents(folder_id: str, files: List[UploadFile] = File(...), current_user: dict = Depends(get_admin_user)):
-    MAX_FILE_SIZE = 10 * 1024 * 1024  # Límite de 10 MB por archivo
+    MAX_TOTAL_SIZE = 100 * 1024 * 1024  # Límite total de 100 MB
     
     # 1. Validar extensiones de todos los archivos antes de procesar
     for file in files:
@@ -34,18 +34,29 @@ async def upload_documents(folder_id: str, files: List[UploadFile] = File(...), 
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Formato de archivo no soportado en '{file.filename}'. Utilice PDF, DOCX, DOC o TXT."
             )
+
+    # 1.5. Validar tamaño total acumulado de todos los archivos
+    total_size = 0
+    for file in files:
+        size = getattr(file, "size", None)
+        if size is None:
+            await file.seek(0, 2)
+            size = await file.tell()
+            await file.seek(0)
+        total_size += size
+
+    if total_size > MAX_TOTAL_SIZE:
+        total_mb = total_size / (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El tamaño total de los archivos ({total_mb:.2f} MB) excede el límite máximo permitido de 100 MB."
+        )
             
     uploaded_metadata = []
     
     # 2. Procesar e indexar cada archivo
     for file in files:
         file_bytes = await file.read()
-        if len(file_bytes) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"El archivo '{file.filename}' excede el límite máximo permitido de 10 MB."
-            )
-            
         try:
             doc_metadata = await process_and_index_file(file_bytes, file.filename, folder_id)
             uploaded_metadata.append(doc_metadata)

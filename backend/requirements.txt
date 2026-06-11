@@ -20,6 +20,10 @@ python-docx
 langchain-text-splitters
 whoosh
 flashrank
+fastembed
+pymupdf
+pytesseract
+pillow
 
 
 
