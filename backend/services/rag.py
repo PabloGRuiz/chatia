@@ -212,7 +212,28 @@ def detect_document_search_intent(query: str) -> bool:
             
     return False
 
-async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] = None, user_role: str = "user") -> str:
+async def get_source_documents_metadata(unique_docs: List[tuple]) -> List[Dict[str, Any]]:
+    db = get_database()
+    source_docs = []
+    for folder_id, filename in unique_docs:
+        try:
+            query_filter = {"filename": filename}
+            if folder_id:
+                if isinstance(folder_id, str) and len(folder_id) == 24:
+                    query_filter["folder_id"] = folder_id
+            
+            doc = await db.documents.find_one(query_filter)
+            if doc:
+                source_docs.append({
+                    "id": str(doc["_id"]),
+                    "filename": filename,
+                    "folder_id": str(doc["folder_id"])
+                })
+        except Exception as e:
+            print(f"Error recuperando metadatos para {filename}: {e}")
+    return source_docs
+
+async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] = None, user_role: str = "user") -> tuple[str, List[Dict[str, Any]]]:
     # 0. Cortocircuito para búsqueda de archivos si se detecta intención
     if detect_document_search_intent(query):
         try:
@@ -246,7 +267,10 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
                     response_parts.append(f"   > ... {snippet} ...\n")
             
             response_parts.append("\n¿Deseas que profundice en el contenido de alguno de estos documentos o tienes otra pregunta?")
-            return "\n".join(response_parts)
+            
+            unique_docs = list(grouped_matches.keys())
+            source_docs = await get_source_documents_metadata(unique_docs)
+            return "\n".join(response_parts), source_docs
         else:
             # Fallback semántico (Qdrant) si Whoosh no encuentra nada, pero formateado de forma directa
             qdrant_matches = await search_qdrant(query, folder_id=folder_id, filenames=filenames, top_k=6)
@@ -271,9 +295,12 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
                         response_parts.append(f"   > ... {snippet} ...\n")
                 
                 response_parts.append("\n¿Deseas que responda una pregunta en base a estos textos o prefieres buscar algo diferente?")
-                return "\n".join(response_parts)
                 
-            return "No he encontrado ningún documento en la base de datos que mencione esos términos de búsqueda."
+                unique_docs = list(grouped_matches.keys())
+                source_docs = await get_source_documents_metadata(unique_docs)
+                return "\n".join(response_parts), source_docs
+                
+            return "No he encontrado ningún documento en la base de datos que mencione esos términos de búsqueda.", []
 
     # 1. Recuperar de Qdrant (buscamos un top_k más alto para luego rerankear y no perder contexto)
     docs = await search_qdrant(query, folder_id, filenames, top_k=20)
@@ -295,7 +322,7 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
         context = "\n\n".join(context_parts)
     else:
         # Si no hay documentos en Qdrant, respondemos directamente con el mensaje predeterminado
-        return "No tengo la información solicitada en mi base de datos."
+        return "No tengo la información solicitada en mi base de datos.", []
         
     # 5. Ajustar el Prompt según el rol
     role_instruction = ""
@@ -341,7 +368,12 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
             response = await llm.ainvoke(prompt)
         else:
             response = await asyncio.to_thread(llm.invoke, prompt)
-        return response
+            
+        # Obtener metadatos de documentos fuente únicos
+        unique_docs = list(set((doc.get("folder_id"), doc.get("filename")) for doc in reranked_docs if doc.get("filename")))
+        source_docs = await get_source_documents_metadata(unique_docs)
+        
+        return response, source_docs
     except Exception as e:
         print(f"Error generando respuesta con Ollama: {e}")
-        return "Lo siento, ocurrió un error interno al conectar con el modelo LLaMA local o la petición fue cancelada."
+        return "Lo siento, ocurrió un error interno al conectar con el modelo LLaMA local o la petición fue cancelada.", []

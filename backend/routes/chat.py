@@ -14,7 +14,7 @@ router = APIRouter()
 async def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)):
     # 1. Medir tiempo de ejecución y ejecutar el flujo RAG real con Langchain, Qdrant y Ollama
     start_time = time.time()
-    response_text = await run_rag_chain(request.query, request.folder_id, request.filenames, current_user.get("role", "user"))
+    response_text, source_documents = await run_rag_chain(request.query, request.folder_id, request.filenames, current_user.get("role", "user"))
     execution_time = round(time.time() - start_time, 2)
     
     # 2. Obtener nombre de la carpeta
@@ -35,6 +35,7 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
         "folder_name": folder_name,
         "filenames": request.filenames,
         "execution_time": execution_time,
+        "source_documents": source_documents,
         "created_at": datetime.datetime.utcnow()
     }
 
@@ -64,7 +65,8 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
         session_id=session_id,
         folder_name=folder_name,
         filenames=request.filenames,
-        execution_time=execution_time
+        execution_time=execution_time,
+        source_documents=source_documents
     )
 
 @router.get("/sessions")

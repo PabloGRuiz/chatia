@@ -46,6 +46,7 @@ class ChatMessage(BaseModel):
     folder_name: Optional[str] = None
     filenames: Optional[List[str]] = None
     execution_time: Optional[float] = None
+    source_documents: Optional[List[Dict[str, Any]]] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ChatSessionDB(BaseModel):
@@ -72,6 +73,7 @@ class ChatResponse(BaseModel):
     folder_name: Optional[str] = None
     filenames: Optional[List[str]] = None
     execution_time: Optional[float] = None
+    source_documents: Optional[List[Dict[str, Any]]] = None
 
 class TruncateRequest(BaseModel):
     index: int

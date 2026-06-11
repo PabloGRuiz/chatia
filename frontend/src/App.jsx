@@ -675,7 +675,8 @@ function App() {
         content: data.response,
         folder_name: data.folder_name,
         filenames: data.filenames,
-        execution_time: data.execution_time
+        execution_time: data.execution_time,
+        source_documents: data.source_documents
       }
       setMessages(prev => [...prev, asstMsg])
       
@@ -1193,6 +1194,41 @@ function App() {
                       </div>
                     )}
                     <div className="message-content">{renderMessageContent(msg.content)}</div>
+                    {msg.role === 'assistant' && msg.source_documents && msg.source_documents.length > 0 && (
+                      <div className="source-docs-container" style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgba(255,255,255,0.4)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <FileText size={12} /> Documentos de referencia:
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {msg.source_documents.map(doc => (
+                            <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', border: '1px solid rgba(255,255,255,0.04)' }}>
+                              <span style={{ color: 'rgba(255,255,255,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={doc.filename}>
+                                {doc.filename}
+                              </span>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <a 
+                                  href={`http://localhost:8000/folders/documents/${doc.id}/download?inline=true`} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  style={{ color: 'var(--primary-color)', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 500 }}
+                                  title="Visualizar documento en nueva pestaña"
+                                >
+                                  <Eye size={12} /> Visualizar
+                                </a>
+                                <a 
+                                  href={`http://localhost:8000/folders/documents/${doc.id}/download`} 
+                                  download
+                                  style={{ color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 500 }}
+                                  title="Descargar documento"
+                                >
+                                  <Download size={12} /> Descargar
+                                </a>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
                 {chatLoading && (
