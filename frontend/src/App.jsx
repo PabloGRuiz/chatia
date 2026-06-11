@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, Folder, Database, Settings, ShieldAlert, Bot, LogOut, Lock, Mail, Users, FileText, Plus, Trash2, ChevronRight, ChevronDown, Sun, Moon, Edit2, XCircle, CheckSquare, Square, Key, Search, Eye, Download } from 'lucide-react'
+import { Send, Folder, Database, Settings, ShieldAlert, Bot, LogOut, Lock, Mail, Users, FileText, Plus, Trash2, ChevronRight, ChevronDown, Sun, Moon, Edit2, XCircle, CheckSquare, Square, Key, Search, Eye, Download, Clock } from 'lucide-react'
 
 // Intercept all fetch requests to auto-logout on expired/invalid JWT token
 const originalFetch = window.fetch;
@@ -674,7 +674,8 @@ function App() {
         role: 'assistant', 
         content: data.response,
         folder_name: data.folder_name,
-        filenames: data.filenames
+        filenames: data.filenames,
+        execution_time: data.execution_time
       }
       setMessages(prev => [...prev, asstMsg])
       
@@ -1163,9 +1164,18 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: 'var(--primary-color)', fontWeight: 600 }}>
                           <Bot size={18} /> Asistente
                         </div>
-                        {msg.folder_name && (
-                          <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Database size={10} /> Consultado en: {msg.folder_name} {msg.filenames && msg.filenames.length > 0 ? `> ${msg.filenames.length} archivo(s)` : ''}
+                        {(msg.folder_name || msg.execution_time) && (
+                          <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {msg.folder_name && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <Database size={10} /> Consultado en: {msg.folder_name} {msg.filenames && msg.filenames.length > 0 ? `> ${msg.filenames.length} archivo(s)` : ''}
+                              </div>
+                            )}
+                            {msg.execution_time !== undefined && msg.execution_time !== null && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'rgba(255,255,255,0.35)' }}>
+                                <Clock size={10} /> Respuesta generada en {msg.execution_time} segundos
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

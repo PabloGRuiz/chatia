@@ -6,13 +6,16 @@ from services.rag import run_rag_chain
 from database import get_database
 from auth import get_current_user
 import datetime
+import time
 
 router = APIRouter()
 
 @router.post("/", response_model=ChatResponse)
 async def chat(request: ChatRequest, current_user: dict = Depends(get_current_user)):
-    # 1. Ejecutar el flujo RAG real con Langchain, Qdrant y Ollama
+    # 1. Medir tiempo de ejecución y ejecutar el flujo RAG real con Langchain, Qdrant y Ollama
+    start_time = time.time()
     response_text = await run_rag_chain(request.query, request.folder_id, request.filenames, current_user.get("role", "user"))
+    execution_time = round(time.time() - start_time, 2)
     
     # 2. Obtener nombre de la carpeta
     db = get_database()
@@ -31,6 +34,7 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
         "content": response_text, 
         "folder_name": folder_name,
         "filenames": request.filenames,
+        "execution_time": execution_time,
         "created_at": datetime.datetime.utcnow()
     }
 
@@ -59,7 +63,8 @@ async def chat(request: ChatRequest, current_user: dict = Depends(get_current_us
         response=response_text, 
         session_id=session_id,
         folder_name=folder_name,
-        filenames=request.filenames
+        filenames=request.filenames,
+        execution_time=execution_time
     )
 
 @router.get("/sessions")
