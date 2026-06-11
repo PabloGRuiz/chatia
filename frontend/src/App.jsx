@@ -505,6 +505,30 @@ function App() {
     setIntentPhrases(prev => prev.filter((_, idx) => idx !== index))
   }
 
+  const handleResetIntents = async () => {
+    if (!confirm("¿Seguro que deseas restablecer el detector a las frases por defecto del sistema? Se eliminarán tus cambios personalizados.")) return
+    setSavingIntents(true)
+    setIntentsMessage('')
+    try {
+      const res = await fetch('http://localhost:8000/settings/intents', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+      if (res.ok) {
+        setIntentsMessage('Ajustes del detector restablecidos por defecto.')
+        setTimeout(() => setIntentsMessage(''), 3000)
+        await fetchIntentPhrases()
+      } else {
+        setIntentsMessage('Error al restablecer los ajustes.')
+      }
+    } catch (err) {
+      console.error(err)
+      setIntentsMessage('Error de conexión.')
+    } finally {
+      setSavingIntents(false)
+    }
+  }
+
   const handleSemanticSearch = async (e) => {
     if (e) e.preventDefault()
     if (!searchQuery.trim()) return
@@ -1852,13 +1876,24 @@ function App() {
                 <span style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)' }}>
                   Nota: Las frases que contienen caracteres especiales (como \, \b, *, +, ?) se interpretan como regex avanzadas.
                 </span>
-                <button 
-                  onClick={handleSaveIntents} 
-                  disabled={savingIntents} 
-                  style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '6px', fontWeight: 600, cursor: savingIntents ? 'not-allowed' : 'pointer' }}
-                >
-                  {savingIntents ? 'Guardando...' : 'Guardar Frases'}
-                </button>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    onClick={handleResetIntents}
+                    disabled={savingIntents}
+                    style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '12px 20px', borderRadius: '6px', fontWeight: 600, cursor: savingIntents ? 'not-allowed' : 'pointer', transition: 'all 0.2s' }}
+                    onMouseEnter={(e) => { if(!savingIntents) e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)' }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
+                  >
+                    Restablecer por Defecto
+                  </button>
+                  <button 
+                    onClick={handleSaveIntents} 
+                    disabled={savingIntents} 
+                    style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '6px', fontWeight: 600, cursor: savingIntents ? 'not-allowed' : 'pointer' }}
+                  >
+                    {savingIntents ? 'Guardando...' : 'Guardar Frases'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

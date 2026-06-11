@@ -174,9 +174,13 @@ El endpoint `/search/` realiza búsquedas combinadas:
 Cuando se realiza una pregunta en el chat, la cadena de ejecución en `backend/services/rag.py` sigue estos pasos:
 
 ### Paso 1: Detector de Intenciones (Bypass de LLM)
-Antes de invocar modelos pesados, se ejecuta una función regex: `detect_document_search_intent(query)`.
-* **Propósito:** Captura preguntas estructuradas de búsqueda de archivos (ej. *"¿En qué documento habla de..."*).
-* **Flujo:** Si da positivo, realiza una búsqueda rápida en Whoosh/Qdrant, **agrupa los fragmentos por documento en memoria** y responde al instante con formato Markdown `**`, salteándose por completo la llamada al LLM (tiempo medio de respuesta: **< 0.1 segundos**).
+Antes de invocar modelos pesados, se ejecuta la función asíncrona: `await detect_document_search_intent(query)`.
+* **Propósito:** Captura preguntas de búsqueda de archivos (ej. *"¿En qué documento habla de..."*, *"cuáles son los archivos relacionados a..."*).
+* **Carga de Ajustes desde MongoDB:** En lugar de patrones estáticos, el detector consulta la colección `system_settings` (con la clave `intent_phrases`). Si no se encuentran frases personalizadas en la base de datos, recurre al listado por defecto del sistema.
+* **Evaluación Híbrida de Coincidencia:**
+  * Si el patrón contiene caracteres especiales (como `\b`, `\s`, `\w`), se evalúa mediante una expresión regular compilada (`re.search`).
+  * Si el patrón es texto plano, se evalúa mediante una búsqueda literal rápida (case-insensitive) como subcadena en la consulta del usuario.
+* **Flujo:** Si coincide con algún patrón, realiza una búsqueda rápida en Whoosh/Qdrant, **agrupa los fragmentos por documento en memoria**, recolecta los metadatos de los documentos de referencia (`get_source_documents_metadata`) y responde de inmediato al chat con formato Markdown (`**`), saltando la consulta a Ollama (tiempo de respuesta: **< 0.1 segundos**).
 
 ### Paso 2: Recuperación e Inferencia
 Si no se detecta la intención del Paso 1, continúa el pipeline RAG tradicional:

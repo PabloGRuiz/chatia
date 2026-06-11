@@ -55,6 +55,7 @@ Antes de preguntar, puedes definir el contexto de la conversación utilizando la
 ### Detección Automática de Intenciones (Bypass instantáneo)
 El asistente incluye un motor inteligente para agilizar consultas directas de archivos:
 * Si preguntas algo como *"¿En qué documento se habla de San Martín?"* o *"¿Qué archivo contiene la doctrina militar?"*, el sistema detecta que buscas la ubicación de la información en lugar de una redacción compleja.
+* **Configuración Dinámica:** Los administradores disponen de una pestaña llamada **"Ajustes Detector"** en el panel lateral, desde la cual pueden ver la lista completa de frases e incluso añadir nuevos términos o expresiones regulares avanzadas en tiempo real.
 * **Beneficio:** Evita procesar la respuesta mediante el LLM (ahorrando tiempo y uso de hardware). El chatbot te devolverá de forma **instantánea** la lista de documentos y los fragmentos exactos agrupados por archivo, con las palabras buscadas resaltadas en negrita (`**`).
 
 ### Respuestas Personalizadas por Rol

@@ -211,14 +211,16 @@ async def detect_document_search_intent(query: str) -> bool:
     # 2. Si no hay en DB, usar las por defecto
     if not intent_patterns:
         intent_patterns = [
-            r"\ben\s+(qu[eé]|cual|cu[aá]les)\s+(documento|archivo|pdf|txt|docx|carpeta|ley|reglamento)\b",
-            r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)\s+(habla|menciona|trata|dice|es)\b",
-            r"\bd[oó]nde\s+(se\s+)?(menciona|dice|habla|nombra|encuentra|lee|cita)\b",
-            r"\b(buscar|encuentra|dame|mu[eé]strame)\s+(el|los|un)?\s*(documento|archivo|pdf|txt|docx|ley|reglamento)\b",
-            r"\b(en\s+)?qu[eé]\s+parte\s+del?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)\b",
-            r"\b(tienes|hay)\s+(alg[uú]n|el|un)?\s*(documento|archivo|ley|reglamento)\b",
-            r"\bcu[aá]les?\s+(son\s+)?(los\s+)?(documentos|archivos|pdf|txt|docx|leyes)\s+(relacionados|asociados)\b",
-            r"\bdocumentos\s+(relacionados|asociados|vinculados)\s+a\b"
+            r"\ben\s+(qu[eé]|cual|cu[aá]les)\s+(documento|archivo|pdf|txt|docx|carpeta|ley|reglamento)s?\b",
+            r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(hablan|habla|mencionan|menciona|tratan|trata|dicen|dice|son|es)\b",
+            r"\bd[oó]nde\s+(se\s+)?(mencionan|menciona|dicen|dice|hablan|habla|nombran|nombra|encuentran|encuentra|leen|lee|citan|cita)\b",
+            r"\b(buscar|encuentra|dame|mu[eé]strame)\s+(el|los|un|una|unas|unos)?\s*(documento|archivo|pdf|txt|docx|ley|reglamento)s?\b",
+            r"\b(en\s+)?qu[eé]\s+parte\s+del?s?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\b",
+            r"\b(tienes|hay)\s+(alg[uú]n|algunos|el|los|un|una|unos|unas)?\s*(documento|archivo|ley|reglamento)s?\b",
+            r"\bcu[aá]les?\s+(son\s+|est[aá]n\s+)?(los\s+)?(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\b",
+            r"\bcu[aá]les?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(son\s+|est[aá]n\s+)?(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\b",
+            r"\b(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\s+a\b",
+            r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(est[aá]n\s+)?(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\s+(con|a)\b"
         ]
         
     for pattern in intent_patterns:
