@@ -188,7 +188,7 @@ async def rerank_documents(query: str, docs: List[Dict[str, Any]], top_n: int = 
 import re
 from bson import ObjectId
 
-def detect_document_search_intent(query: str) -> bool:
+async def detect_document_search_intent(query: str) -> bool:
     """
     Detecta si el usuario tiene la intención explícita de buscar archivos,
     documentos, leyes o reglamentos en la base de datos de manera directa.
@@ -196,19 +196,43 @@ def detect_document_search_intent(query: str) -> bool:
     """
     query_clean = query.lower().strip()
     
-    # Patrones para identificar búsquedas explícitas de documentos
-    intent_patterns = [
-        r"\ben\s+(qu[eé]|cual|cu[aá]les)\s+(documento|archivo|pdf|txt|docx|carpeta|ley|reglamento)\b",
-        r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)\s+(habla|menciona|trata|dice|es)\b",
-        r"\bd[oó]nde\s+(se\s+)?(menciona|dice|habla|nombra|encuentra|lee|cita)\b",
-        r"\b(buscar|encuentra|dame|mu[eé]strame)\s+(el|los|un)?\s*(documento|archivo|pdf|txt|docx|ley|reglamento)\b",
-        r"\b(en\s+)?qu[eé]\s+parte\s+del?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)\b",
-        r"\b(tienes|hay)\s+(alg[uú]n|el|un)?\s*(documento|archivo|ley|reglamento)\b"
-    ]
-    
+    # 1. Intentar cargar patrones personalizados desde MongoDB
+    try:
+        db = get_database()
+        settings = await db.system_settings.find_one({"key": "intent_phrases"})
+        if settings and "value" in settings and isinstance(settings["value"], list) and len(settings["value"]) > 0:
+            intent_patterns = settings["value"]
+        else:
+            intent_patterns = []
+    except Exception as e:
+        print(f"Error cargando frases de intención de DB: {e}")
+        intent_patterns = []
+        
+    # 2. Si no hay en DB, usar las por defecto
+    if not intent_patterns:
+        intent_patterns = [
+            r"\ben\s+(qu[eé]|cual|cu[aá]les)\s+(documento|archivo|pdf|txt|docx|carpeta|ley|reglamento)\b",
+            r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)\s+(habla|menciona|trata|dice|es)\b",
+            r"\bd[oó]nde\s+(se\s+)?(menciona|dice|habla|nombra|encuentra|lee|cita)\b",
+            r"\b(buscar|encuentra|dame|mu[eé]strame)\s+(el|los|un)?\s*(documento|archivo|pdf|txt|docx|ley|reglamento)\b",
+            r"\b(en\s+)?qu[eé]\s+parte\s+del?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)\b",
+            r"\b(tienes|hay)\s+(alg[uú]n|el|un)?\s*(documento|archivo|ley|reglamento)\b",
+            r"\bcu[aá]les?\s+(son\s+)?(los\s+)?(documentos|archivos|pdf|txt|docx|leyes)\s+(relacionados|asociados)\b",
+            r"\bdocumentos\s+(relacionados|asociados|vinculados)\s+a\b"
+        ]
+        
     for pattern in intent_patterns:
-        if re.search(pattern, query_clean):
-            return True
+        # Si parece una expresión regular compleja
+        if any(c in pattern for c in ['\\', '*', '+', '?', '^', '$', '(', ')', '[', ']']):
+            try:
+                if re.search(pattern, query_clean):
+                    return True
+            except Exception as e:
+                print(f"Patrón regex inválido '{pattern}': {e}")
+        else:
+            # Búsqueda literal
+            if pattern.lower().strip() in query_clean:
+                return True
             
     return False
 
@@ -235,7 +259,7 @@ async def get_source_documents_metadata(unique_docs: List[tuple]) -> List[Dict[s
 
 async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] = None, user_role: str = "user") -> tuple[str, List[Dict[str, Any]]]:
     # 0. Cortocircuito para búsqueda de archivos si se detecta intención
-    if detect_document_search_intent(query):
+    if await detect_document_search_intent(query):
         try:
             from services.search_whoosh import search_keywords
             whoosh_matches = search_keywords(query, folder_id=folder_id, filenames=filenames, limit=6, markdown_highlights=True)

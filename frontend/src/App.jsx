@@ -222,6 +222,12 @@ function App() {
   const [savingGlossary, setSavingGlossary] = useState(false)
   const [glossaryMessage, setGlossaryMessage] = useState('')
 
+  // Settings State (Intent Phrases)
+  const [intentPhrases, setIntentPhrases] = useState([])
+  const [savingIntents, setSavingIntents] = useState(false)
+  const [intentsMessage, setIntentsMessage] = useState('')
+  const [newIntentInput, setNewIntentInput] = useState('')
+
   // Semantic Search State
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -442,6 +448,63 @@ function App() {
     }
   }
 
+  const fetchIntentPhrases = async () => {
+    if (!user) return
+    try {
+      const res = await fetch('http://localhost:8000/settings/intents', {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setIntentPhrases(data.intents || [])
+      }
+    } catch (err) {
+      console.error("Error al cargar frases de intención:", err)
+    }
+  }
+
+  const handleSaveIntents = async (e) => {
+    if (e) e.preventDefault()
+    setSavingIntents(true)
+    setIntentsMessage('')
+    try {
+      const res = await fetch('http://localhost:8000/settings/intents', {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user.token}`
+        },
+        body: JSON.stringify({ intents: intentPhrases })
+      })
+      if (res.ok) {
+        setIntentsMessage('Frases del detector actualizadas correctamente.')
+        setTimeout(() => setIntentsMessage(''), 3000)
+      } else {
+        setIntentsMessage('Error al actualizar.')
+      }
+    } catch (err) {
+      console.error(err)
+      setIntentsMessage('Error de conexión.')
+    } finally {
+      setSavingIntents(false)
+    }
+  }
+
+  const handleAddIntentPhrase = (e) => {
+    e.preventDefault()
+    if (!newIntentInput.trim()) return
+    if (intentPhrases.some(x => x.toLowerCase() === newIntentInput.trim().toLowerCase())) {
+      alert("Esta frase ya existe.")
+      return
+    }
+    setIntentPhrases(prev => [...prev, newIntentInput.trim()])
+    setNewIntentInput('')
+  }
+
+  const handleRemoveIntentPhrase = (index) => {
+    setIntentPhrases(prev => prev.filter((_, idx) => idx !== index))
+  }
+
   const handleSemanticSearch = async (e) => {
     if (e) e.preventDefault()
     if (!searchQuery.trim()) return
@@ -473,6 +536,7 @@ function App() {
       if (user.role === 'admin') {
         fetchSystemUsers()
         fetchMilitaryGlossary()
+        fetchIntentPhrases()
       }
     }
   }, [user])
@@ -958,6 +1022,12 @@ function App() {
               onClick={() => setActiveTab('glosario')}
             >
               <Database size={18} /> Glosario Base
+            </div>
+            <div 
+              className={`tab-item ${activeTab === 'intents' ? 'active' : ''}`}
+              onClick={() => setActiveTab('intents')}
+            >
+              <Bot size={18} /> Ajustes Detector
             </div>
             <div 
               className={`tab-item ${activeTab === 'search' ? 'active' : ''}`}
@@ -1717,6 +1787,79 @@ function App() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: AJUSTES DETECTOR DE INTENCIONES */}
+        {activeTab === 'intents' && user.role === 'admin' && (
+          <div className="admin-container">
+            <div className="admin-card" style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <h3 style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--admin-card-border)', paddingBottom: '10px', transition: 'border-color 0.3s' }}>
+                <Bot size={20} /> Ajustes del Detector de Intenciones
+              </h3>
+              <p style={{ fontSize: '0.9rem', color: 'var(--admin-text-muted)', marginBottom: '20px' }}>
+                Define aquí frases simples o expresiones regulares (regex) avanzadas que activarán el cortocircuito del chat. Cuando una consulta coincida con cualquiera de estos patrones, la IA buscará los documentos directamente y los devolverá al instante sin generar texto nuevo, ahorrando tokens.
+              </p>
+
+              {intentsMessage && (
+                <div style={{ padding: '10px', borderRadius: '6px', background: intentsMessage.includes('Error') ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)', color: intentsMessage.includes('Error') ? '#ef4444' : '#22c55e', marginBottom: '20px' }}>
+                  {intentsMessage}
+                </div>
+              )}
+
+              {/* Add intent phrase form */}
+              <form onSubmit={handleAddIntentPhrase} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                <input 
+                  type="text" 
+                  placeholder="Ejemplo: 'documentos relacionados' o r'\bver\s+archivo\b' (regex)"
+                  value={newIntentInput}
+                  onChange={e => setNewIntentInput(e.target.value)}
+                  style={{ flex: 1, padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--admin-input-border)', backgroundColor: 'var(--admin-input-bg)', color: 'var(--admin-text-main)', fontSize: '0.85rem' }}
+                />
+                <button type="submit" style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
+                  Agregar Frase
+                </button>
+              </form>
+
+              {/* List of current intent patterns */}
+              <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid var(--admin-card-border)', borderRadius: '6px', padding: '10px', backgroundColor: 'rgba(0,0,0,0.15)', marginBottom: '20px' }}>
+                {intentPhrases.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: 'var(--admin-text-muted)', fontSize: '0.85rem' }}>
+                    No hay frases personalizadas registradas. Se usarán las frases por defecto del sistema.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {intentPhrases.map((phrase, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '4px', backgroundColor: 'var(--admin-input-bg)', border: '1px solid var(--admin-card-border)', fontSize: '0.85rem', color: 'var(--admin-text-main)' }}>
+                        <span style={{ fontFamily: phrase.startsWith('\\b') || phrase.includes('\\s') ? 'monospace' : 'inherit', wordBreak: 'break-all' }}>
+                          {phrase}
+                        </span>
+                        <button 
+                          onClick={() => handleRemoveIntentPhrase(idx)}
+                          style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                          title="Eliminar frase"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)' }}>
+                  Nota: Las frases que contienen caracteres especiales (como \, \b, *, +, ?) se interpretan como regex avanzadas.
+                </span>
+                <button 
+                  onClick={handleSaveIntents} 
+                  disabled={savingIntents} 
+                  style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '6px', fontWeight: 600, cursor: savingIntents ? 'not-allowed' : 'pointer' }}
+                >
+                  {savingIntents ? 'Guardando...' : 'Guardar Frases'}
+                </button>
+              </div>
             </div>
           </div>
         )}
