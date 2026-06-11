@@ -1,4 +1,5 @@
 import os
+from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends
 from fastapi.responses import FileResponse
 from database import get_database, get_qdrant
@@ -23,22 +24,41 @@ async def list_documents(folder_id: str):
     return docs
 
 @router.post("/{folder_id}/documents/upload")
-async def upload_document(folder_id: str, file: UploadFile = File(...), current_user: dict = Depends(get_admin_user)):
-    if not file.filename.lower().endswith(('.pdf', '.docx', '.doc', '.txt')):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Formato de archivo no soportado. Utilice PDF, DOCX, DOC o TXT."
-        )
+async def upload_documents(folder_id: str, files: List[UploadFile] = File(...), current_user: dict = Depends(get_admin_user)):
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # Límite de 10 MB por archivo
     
-    file_bytes = await file.read()
-    try:
-        doc_metadata = await process_and_index_file(file_bytes, file.filename, folder_id)
-        return doc_metadata
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        print(f"Error procesando archivo: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno al procesar e indexar el archivo.")
+    # 1. Validar extensiones de todos los archivos antes de procesar
+    for file in files:
+        if not file.filename.lower().endswith(('.pdf', '.docx', '.doc', '.txt')):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Formato de archivo no soportado en '{file.filename}'. Utilice PDF, DOCX, DOC o TXT."
+            )
+            
+    uploaded_metadata = []
+    
+    # 2. Procesar e indexar cada archivo
+    for file in files:
+        file_bytes = await file.read()
+        if len(file_bytes) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El archivo '{file.filename}' excede el límite máximo permitido de 10 MB."
+            )
+            
+        try:
+            doc_metadata = await process_and_index_file(file_bytes, file.filename, folder_id)
+            uploaded_metadata.append(doc_metadata)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Error en '{file.filename}': {str(e)}")
+        except Exception as e:
+            print(f"Error procesando archivo '{file.filename}': {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error interno al procesar e indexar el archivo '{file.filename}'."
+            )
+            
+    return uploaded_metadata
 
 @router.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str, current_user: dict = Depends(get_admin_user)):

@@ -193,7 +193,7 @@ function App() {
   const [newFolderDesc, setNewFolderDesc] = useState('')
 
   // New document form
-  const [selectedFile, setSelectedFile] = useState(null)
+  const [selectedFiles, setSelectedFiles] = useState([])
   const [uploading, setUploading] = useState(false)
 
   // Chat State
@@ -774,11 +774,13 @@ function App() {
   // Document Upload/Delete actions
   const handleUploadDocument = async (e) => {
     e.preventDefault()
-    if (!selectedFile || !activeFolder) return
+    if (selectedFiles.length === 0 || !activeFolder) return
     setUploading(true)
 
     const formData = new FormData()
-    formData.append('file', selectedFile)
+    selectedFiles.forEach(file => {
+      formData.append('files', file)
+    })
 
     try {
       const res = await fetch(`http://localhost:8000/folders/${activeFolder.id}/documents/upload`, {
@@ -789,17 +791,17 @@ function App() {
       
       if (!res.ok) {
         const errData = await res.json()
-        alert(errData.detail || "Error subiendo archivo")
+        alert(errData.detail || "Error subiendo archivo(s)")
       } else {
-        setSelectedFile(null)
+        setSelectedFiles([])
         // Reset file input UI
         const fileInput = document.getElementById('file-input')
         if (fileInput) fileInput.value = ''
         fetchDocuments()
       }
     } catch (err) {
-      console.error("Error subiendo archivo:", err)
-      alert("Error de conexión al subir el archivo.")
+      console.error("Error subiendo archivo(s):", err)
+      alert("Error de conexión al subir el/los archivo(s).")
     } finally {
       setUploading(false)
     }
@@ -1417,18 +1419,19 @@ function App() {
                   {/* Upload Form */}
                   <form onSubmit={handleUploadDocument} className="responsive-form" style={{ marginBottom: '20px' }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--admin-text-muted)', display: 'block', marginBottom: '4px', transition: 'color 0.3s' }}>Subir PDF, Word o TXT real</label>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--admin-text-muted)', display: 'block', marginBottom: '4px', transition: 'color 0.3s' }}>Subir PDF, Word o TXT (Máx 10MB c/u)</label>
                       <input 
                         id="file-input"
                         type="file" 
                         accept=".pdf,.docx,.doc,.txt"
+                        multiple
                         style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--admin-input-border)', background: 'var(--admin-input-bg)', color: 'var(--admin-text-main)', transition: 'all 0.3s' }}
-                        onChange={(e) => setSelectedFile(e.target.files[0])}
+                        onChange={(e) => setSelectedFiles(Array.from(e.target.files))}
                         required
                       />
                     </div>
-                    <button type="submit" style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '11px 18px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }} disabled={!selectedFile || uploading}>
-                      {uploading ? 'Procesando...' : 'Cargar'}
+                    <button type="submit" style={{ background: 'var(--primary-color)', color: 'white', border: 'none', padding: '11px 18px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }} disabled={selectedFiles.length === 0 || uploading}>
+                      {uploading ? 'Procesando...' : selectedFiles.length > 1 ? `Cargar (${selectedFiles.length})` : 'Cargar'}
                     </button>
                   </form>
 
