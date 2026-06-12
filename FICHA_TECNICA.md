@@ -50,12 +50,15 @@ El sistema se compone de 5 contenedores orquestados mediante **Docker Compose**:
 * **Bases de Datos y Clientes:**
   * `motor`: Cliente asíncrono oficial para MongoDB.
   * `qdrant-client`: Cliente oficial para Qdrant DB.
-  * `whoosh`: Motor de búsqueda de texto completo y indexación léxica (100% Python).
+  * `fastembed`: Librería de generación de embeddings locales rápidos e independientes de Ollama.
+  * `whoosh`: Motor de búsqueda de texto completo e indexación léxica (100% Python).
 * **Seguridad:** JSON Web Tokens (JWT), encriptación bcrypt para credenciales (`passlib`).
-* **Librerías de Procesamiento de Archivos:**
+* **Librerías de Procesamiento de Archivos y OCR:**
   * `pdfplumber` (Lectura avanzada y estructurada de PDFs).
   * `pypdf` (Lector PDF secundario / fallback).
   * `python-docx` (Extracción de archivos Microsoft Word `.docx` / `.doc`).
+  * `pymupdf` (PyMuPDF - Extracción de imágenes de páginas PDF para procesamiento OCR).
+  * `pytesseract` (Enlace de Python para Tesseract OCR, digitalización de imágenes de texto).
 * **Variables de Entorno:** Administradas con `python-dotenv`.
 
 ---
@@ -64,11 +67,11 @@ El sistema se compone de 5 contenedores orquestados mediante **Docker Compose**:
 El backend implementa una estrategia de recuperación híbrida para maximizar la relevancia de los resultados:
 
 1. **Búsqueda Semántica (Qdrant):**
-   * Convierte la consulta en un vector de **768 dimensiones** usando el modelo local `nomic-embed-text`.
+   * Convierte la consulta en un vector de **384 dimensiones** usando el modelo local `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` mediante la librería **FastEmbed**.
    * Realiza una búsqueda por similitud de coseno en la colección `documents`.
    * Permite filtrado exacto en caliente (`FieldCondition`) por `folder_id` y `filename` directamente en Qdrant.
 2. **Búsqueda Léxica/Exacta (Whoosh):**
-   * Indice de texto completo almacenado localmente en el volumen del servidor (`backend/whoosh_index`).
+   * Índice de texto completo almacenado localmente en el volumen del servidor (`backend/whoosh_index`).
    * Configurado con `LanguageAnalyzer("es")` (analizador nativo en español que incluye stop-words y stemming).
    * Genera fragmentos (snippets) dinámicos con las palabras clave resaltadas en etiquetas HTML `<mark>` o Markdown `**`.
 3. **Fusión Híbrida:**
@@ -79,25 +82,30 @@ El backend implementa una estrategia de recuperación híbrida para maximizar la
 
 ## 5. Módulo RAG y Detección de Intenciones (Intent Bypass)
 * **Modelos de IA:**
-  * **LLM Principal:** `llama3.1` (ejecutándose en local sobre Ollama con un timeout robusto de 300s para evitar fallas en CPU).
-  * **Embedding Model:** `nomic-embed-text` (Ollama).
+  * **LLM Principal:** `phi3:mini` (u otro modelo local configurable en `.env`, ejecutándose en local sobre Ollama con un timeout robusto de 300s para evitar fallas en CPU).
+  * **Embedding Model:** `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (FastEmbed local, 384 dimensiones).
 * **Pipeline RAG Contextualizado:**
   * El prompt del sistema (`SYSTEM_PROMPT`) incluye obligatoriamente una sección de **Glosario y Doctrina Base** extraída de MongoDB. Sirve como fuente de verdad para definir jerarquías y traducir terminología o abreviaturas militares.
 * **Personalización por Roles:**
   * **Administrador:** Respuestas detalladas que mencionan fuentes técnicas, nombres de archivos, fragmentos y referencias internas de base de datos.
   * **Usuario Común:** Respuestas ejecutivas, directas y sin tecnicismos del sistema (ocultando palabras como "Qdrant", "embeddings", "fragmentos", etc.).
 * **Cortocircuito de Consulta de Archivo (Intent Bypass):**
-  * Un sistema basado en expresiones regulares detecta si el usuario está haciendo una pregunta puramente de búsqueda de documentos (ej. *"¿En qué archivo se menciona..."*, *"¿Dónde habla del reglamento..."*).
+  * Un sistema basado en expresiones regulares y términos literales detecta si el usuario está haciendo una pregunta puramente de búsqueda de documentos (ej. *"¿En qué archivo se menciona..."*, *"¿Dónde habla del reglamento..."*).
   * **Comportamiento:** Salta por completo la llamada al LLM (ahorrando tiempo de procesamiento y tokens locales). Realiza una búsqueda directa y veloz en Whoosh y Qdrant, agrupa los fragmentos por documento y devuelve de forma instantánea una lista estructurada con las palabras buscadas resaltadas en negrita.
 
 ---
 
 ## 6. Pipeline de Ingesta de Documentos
 Cuando un usuario con rol de Administrador sube un documento:
-1. **Almacenamiento:** Guarda físicamente el archivo en `backend/uploads/{folder_id}/{filename}`.
-2. **Extracción de Texto:** Parsea el contenido según la extensión (`.pdf`, `.docx`, `.doc`, `.txt`).
-3. **Etiquetado por IA:** Envía los primeros 4000 caracteres al LLM local para autogenerar entre 3 y 5 etiquetas (tags) conceptuales del archivo.
-4. **Chunking (Segmentación):** Divide el texto en fragmentos con un tamaño máximo de 1500 caracteres y una superposición (overlap) de 300 caracteres utilizando `RecursiveCharacterTextSplitter`.
-5. **Indexación Vectorial:** Genera embeddings y los sube a Qdrant.
-6. **Indexación Léxica:** Escribe los fragmentos en el índice local de Whoosh.
-7. **Persistencia en MongoDB:** Registra el documento en la colección `documents` y almacena los fragmentos individuales en `document_chunks` para referencias futuras.
+1. **Validaciones en Carga:**
+   * **Tamaño Máximo:** Se valida que el tamaño total acumulado de los archivos subidos en una sola petición no exceda los **100 MB**.
+   * **Extensiones Soportadas:** Se comprueba que los archivos pertenezcan a las extensiones válidas (`.pdf`, `.docx`, `.doc`, `.txt`).
+2. **Almacenamiento:** Guarda físicamente el archivo en `backend/uploads/{folder_id}/{filename}`.
+3. **Extracción de Texto y Fallback OCR:** 
+   * Parsea el contenido seleccionable según la extensión (`.pdf`, `.docx`, `.doc`, `.txt`).
+   * **Soporte OCR Local:** Si es un documento PDF y el extractor no detecta ningún texto digitalizado o seleccionable (por ejemplo, fotocopias de doctrina histórica o reglamentos antiguos escaneados), el backend activa automáticamente el pipeline de OCR local en segundo plano. Éste renderiza las páginas a imágenes de alta definición usando PyMuPDF y extrae el texto mediante Tesseract OCR (idiomas: `spa+eng`).
+4. **Etiquetado por IA:** Envía los primeros 4000 caracteres al LLM local para autogenerar entre 3 y 5 etiquetas (tags) conceptuales del archivo.
+5. **Chunking (Segmentación):** Divide el texto en fragmentos con un tamaño máximo de 1500 caracteres y una superposición (overlap) de 300 caracteres utilizando `RecursiveCharacterTextSplitter`.
+6. **Indexación Vectorial:** Genera embeddings locales de 384 dimensiones usando `FastEmbed` y los sube en lote a Qdrant.
+7. **Indexación Léxica:** Escribe los fragmentos en el índice local de Whoosh.
+8. **Persistencia en MongoDB:** Registra el documento en la colección `documents` y almacena los fragmentos individuales en `document_chunks` para referencias y auditorías futuras.

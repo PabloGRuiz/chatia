@@ -122,16 +122,16 @@ Para evitar que el backend de FastAPI se congele y bloquee el servidor durante l
 [Guardado Físico] ──► /uploads/{folder_id}/{filename}
        │
        ▼
-[Extracción de Texto] ──► Ejecutado en hilo secundario (asyncio.to_thread)
+[Extracción de Texto/OCR] ──► Ejecutado en hilo secundario (asyncio.to_thread)
        │
        ▼
-[Generación de Tags] ──► Consulta al LLM local (llama3.1)
+[Generación de Tags] ──► Consulta al LLM local (phi3:mini)
        │
        ▼
 [Chunking] ──► Splitter de texto (1500 chars / 300 overlap)
        │
        ▼
-[Embeddings en Lote] ──► Generación asíncrona paralela (aembed_documents)
+[Embeddings en Lote] ──► Generación local rápida mediante FastEmbed (384-dim)
        │
        ▼
  ┌─────┴──────────────────────────────────────────────────────┐
@@ -143,12 +143,14 @@ Para evitar que el backend de FastAPI se congele y bloquee el servidor durante l
 (asyncio.to_thread)     (asyncio.to_thread)          (motor async)
 ```
 
-1. **Extracción no bloqueante:** Los lectores (`pdfplumber`/`pypdf` para PDF, `python-docx` para Word y lectura de archivos de texto plano) se ejecutan mediante `await asyncio.to_thread(extractor, file_path)`.
-2. **Generación de Tags:** El LLM local (`llama3.1` mediante Ollama) analiza de forma asíncrona los primeros 4000 caracteres del archivo y devuelve de 3 a 5 palabras clave.
+1. **Extracción no bloqueante y Fallback OCR:** 
+   * Los lectores estándares (`pdfplumber`/`pypdf` para PDF, `python-docx` para Word y lectura de archivos de texto plano) se ejecutan mediante `await asyncio.to_thread(extractor, file_path)`.
+   * **Soporte OCR Local:** Si el extractor de texto no detecta ningún contenido en un archivo PDF (por ser escaneado o una imagen/fotocopia), se ejecuta automáticamente el pipeline de OCR local en segundo plano, renderizando las páginas a imágenes con PyMuPDF (`fitz`) a un factor de zoom de 2.0 y extrayendo el texto en español e inglés (`spa+eng`) con Tesseract OCR (`pytesseract`).
+2. **Generación de Tags:** El LLM local (`phi3:mini` u otro configurado en `.env` mediante Ollama) analiza de forma asíncrona los primeros 4000 caracteres del archivo y devuelve de 3 a 5 palabras clave.
 3. **Chunking (Segmentación):** El texto se fragmenta usando `RecursiveCharacterTextSplitter` con un tamaño de 1500 caracteres y un solapamiento (overlap) de 300 caracteres para asegurar la cohesión contextual.
-4. **Embeddings en Lote:** En lugar de iterar y consultar secuencialmente a Ollama por cada fragmento, se invoca `await embeddings.aembed_documents(chunks)` de una sola vez. Esto permite que Ollama procese la vectorización de forma asíncrona y paralela, liberando el bucle de eventos de FastAPI.
+4. **Embeddings en Lote:** En lugar de realizar peticiones de red externas o delegar a Ollama por cada fragmento, se invoca `await embeddings.aembed_documents(chunks)` para generar vectorizaciones rápidas localmente en CPU mediante la biblioteca **FastEmbed**.
 5. **Persistencia Híbrida:** 
-   * Los vectores generados (vectores de 768 dimensiones del modelo `nomic-embed-text`) se suben a Qdrant encapsulando la llamada HTTP en `asyncio.to_thread(qdrant.upsert, ...)`.
+   * Los vectores generados (vectores de **384 dimensiones** del modelo `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`) se suben a Qdrant encapsulando la llamada en `asyncio.to_thread(qdrant.upsert, ...)`.
    * El texto y sus metadatos se añaden al índice de Whoosh en disco mediante `asyncio.to_thread(index_document_chunks, ...)`.
    * Se registran metadatos y chunks en MongoDB usando el driver reactivo `motor`.
 
@@ -201,7 +203,7 @@ Si no se detecta la intención del Paso 1, continúa el pipeline RAG tradicional
    * Se lee el glosario base desde la colección de MongoDB `system_settings` (clave `military_glossary`) y se inyecta como fuente oficial de verdad en el prompt del sistema.
 4. **Construcción y Generación del LLM:**
    * Se ensambla el prompt final inyectando el rol del usuario (Admin detallado vs User conciso y sin tecnicismos), el glosario y los 3 fragmentos depurados de FlashRank.
-   * Se ejecuta la llamada asíncrona a Ollama LLaMA 3.1 (`await llm.ainvoke(prompt)`).
+   * Se ejecuta la llamada asíncrona al LLM en Ollama (`phi3:mini` por defecto, configurable en `.env`) (`await llm.ainvoke(prompt)`).
    * Al reducir el contexto a solo 3 fragmentos, el volumen de tokens procesado en CPU disminuye radicalmente, reduciendo el tiempo de generación en más de un 60%.
 5. **Retorno y Medición de Tiempos:**
    * Se calcula el tiempo transcurrido en segundos (`execution_time`) y se retorna junto con la respuesta generada del chat.

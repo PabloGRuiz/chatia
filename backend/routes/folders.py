@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from database import get_database, get_qdrant
 from bson import ObjectId
@@ -8,9 +8,11 @@ from auth import get_admin_user
 
 router = APIRouter()
 
+
 class FolderCreate(BaseModel):
     name: str
     description: str = ""
+
 
 @router.get("/")
 async def list_folders():
@@ -19,39 +21,43 @@ async def list_folders():
     for folder in folders:
         folder["id"] = str(folder["_id"])
         del folder["_id"]
-        if "created_at" in folder and isinstance(folder["created_at"], str) == False:
+        if "created_at" in folder and not isinstance(folder["created_at"], str):
             folder["created_at"] = folder["created_at"].isoformat()
     return folders
 
+
 @router.post("/")
-async def create_folder(folder: FolderCreate, current_user: dict = Depends(get_admin_user)):
+async def create_folder(
+    folder: FolderCreate, current_user: dict = Depends(get_admin_user)
+):
     db = get_database()
     new_folder = {
         "name": folder.name,
         "description": folder.description,
-        "created_at": datetime.datetime.utcnow()
+        "created_at": datetime.datetime.utcnow(),
     }
     res = await db.folders.insert_one(new_folder)
     return {
         "id": str(res.inserted_id),
         "name": folder.name,
-        "description": folder.description
+        "description": folder.description,
     }
+
 
 @router.delete("/{folder_id}")
 async def delete_folder(folder_id: str, current_user: dict = Depends(get_admin_user)):
     db = get_database()
     qdrant = get_qdrant()
-    
+
     try:
         oid = ObjectId(folder_id)
     except Exception:
         raise HTTPException(status_code=400, detail="ID de carpeta inválido.")
-        
+
     folder = await db.folders.find_one({"_id": oid})
     if not folder:
         raise HTTPException(status_code=404, detail="Carpeta no encontrada.")
-        
+
     # 1. Eliminar todos los vectores asociados a esta carpeta en Qdrant
     try:
         qdrant.delete(
@@ -59,18 +65,20 @@ async def delete_folder(folder_id: str, current_user: dict = Depends(get_admin_u
             points_selector=qd_models.FilterSelector(
                 filter=qd_models.Filter(
                     must=[
-                        qd_models.FieldCondition(key="folder_id", match=qd_models.MatchValue(value=folder_id))
+                        qd_models.FieldCondition(
+                            key="folder_id", match=qd_models.MatchValue(value=folder_id)
+                        )
                     ]
                 )
-            )
+            ),
         )
     except Exception as e:
         print(f"Error borrando vectores de carpeta {folder_id} en Qdrant: {e}")
-        
+
     # 2. Eliminar metadatos de documentos asociados en MongoDB
     await db.documents.delete_many({"folder_id": folder_id})
-    
+
     # 3. Eliminar la carpeta en MongoDB
     await db.folders.delete_one({"_id": oid})
-    
+
     return {"message": "Carpeta eliminada correctamente", "id": folder_id}

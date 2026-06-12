@@ -24,7 +24,9 @@ El sistema organiza la información de forma estructurada en **Carpetas Temátic
 2. **Subida de Archivos:**
    * Selecciona la carpeta correspondiente.
    * Haz clic en el botón de subir archivo. El sistema soporta formatos **PDF (`.pdf`)**, **Microsoft Word (`.docx`, `.doc`)** y **Texto Plano (`.txt`)**.
-   * Durante la subida, el sistema realiza el procesamiento en segundo plano (extracción de texto, generación de etiquetas por IA e indexación semántica y de palabras clave). El archivo se listará de inmediato en el panel.
+   * **Límites de Carga:** El sistema permite cargar múltiples archivos a la vez, con un límite máximo de tamaño total acumulado de **100 MB** por lote de subida.
+   * **Procesamiento y OCR Local:** Durante la subida, el sistema realiza el procesamiento en segundo plano (extracción de texto, generación de etiquetas por IA e indexación semántica y léxica).
+   * **Soporte de OCR:** Si se sube una fotocopia o un PDF escaneado (sin texto seleccionable), el sistema activará automáticamente el motor de **OCR local** (basado en PyMuPDF y Tesseract OCR) para digitalizar, leer e indexar su contenido en español e inglés, en lugar de ignorar el archivo. El archivo procesado se listará de inmediato en el panel al finalizar.
 3. **Eliminación de Documentos/Carpetas:**
    * Puedes borrar un documento individual haciendo clic en el icono de papelera. Esto eliminará los metadatos de la base de datos, el archivo físico del servidor y purgará los vectores de búsqueda del motor para evitar respuestas obsoletas.
    * Si eliminas una carpeta, se purgarán automáticamente todos sus documentos asociados.

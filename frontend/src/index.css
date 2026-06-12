@@ -1,40 +1,42 @@
 :root {
   --primary-color: #0284c7; /* Sky blue matching the military/law vibe */
   --primary-hover: #0369a1;
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  
+  --font-family:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+
   /* Tema Claro (Híbrido militar) */
   --bg-dark: #0f172a;
   --bg-panel: #1e293b;
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
   --border-color: #334155;
-  
+
   /* Cabecera y lateral */
   --header-bg: #0c4a6e;
   --sidebar-bg: rgba(15, 23, 42, 0.55);
   --sidebar-text: rgba(255, 255, 255, 0.85);
   --sidebar-text-active: #ffffff;
   --sidebar-item-active-bg: #0284c7;
-  
+
   /* Chat y Contenido */
   --content-bg: rgba(15, 23, 42, 0.1);
   --chat-header-bg: rgba(15, 23, 42, 0.2);
   --chat-header-border: rgba(255, 255, 255, 0.05);
   --chat-header-text: #f8fafc;
-  
+
   --msg-user-bg: rgba(2, 132, 199, 0.85);
   --msg-user-text: #ffffff;
   --msg-asst-bg: rgba(15, 23, 42, 0.55);
   --msg-asst-text: #f8fafc;
   --msg-asst-border: rgba(255, 255, 255, 0.08);
-  
+
   --input-container-bg: transparent;
   --input-container-border: transparent;
   --input-box-bg: rgba(15, 23, 42, 0.6);
   --input-box-border: rgba(255, 255, 255, 0.1);
   --chat-input-text: #f8fafc;
-  
+
   /* Admin */
   --admin-bg: #f8fafc;
   --admin-card-bg: #ffffff;
@@ -54,31 +56,31 @@ body.dark-theme {
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
   --border-color: #1e293b;
-  
+
   --header-bg: #072942;
   --sidebar-bg: rgba(9, 13, 22, 0.65);
   --sidebar-text: rgba(255, 255, 255, 0.85);
   --sidebar-text-active: #ffffff;
   --sidebar-item-active-bg: #0284c7;
-  
+
   /* Chat y Contenido */
   --content-bg: rgba(9, 13, 22, 0.25);
   --chat-header-bg: rgba(9, 13, 22, 0.3);
   --chat-header-border: rgba(255, 255, 255, 0.05);
   --chat-header-text: #f8fafc;
-  
+
   --msg-user-bg: rgba(2, 132, 199, 0.85);
   --msg-user-text: #ffffff;
   --msg-asst-bg: rgba(15, 23, 42, 0.65);
   --msg-asst-text: #f1f5f9;
   --msg-asst-border: rgba(255, 255, 255, 0.08);
-  
+
   --input-container-bg: transparent;
   --input-container-border: transparent;
   --input-box-bg: rgba(9, 13, 22, 0.6);
   --input-box-border: rgba(255, 255, 255, 0.1);
   --chat-input-text: #f8fafc;
-  
+
   /* Admin */
   --admin-bg: #0b1329;
   --admin-card-bg: #0f172a;
@@ -188,7 +190,10 @@ body {
   display: flex;
   padding: 0 30px;
   border-bottom: 1px solid var(--admin-table-row-border);
-  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+  transition:
+    background-color 0.3s,
+    color 0.3s,
+    border-color 0.3s;
 }
 
 .tab-item {
@@ -216,7 +221,7 @@ body {
   flex: 1;
   display: flex;
   overflow: hidden;
-  background-image: url('/background.png');
+  background-image: url("/background.png");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -283,7 +288,9 @@ body {
   flex-direction: column;
   background-color: var(--content-bg);
   color: var(--chat-input-text);
-  transition: background-color 0.3s, color 0.3s;
+  transition:
+    background-color 0.3s,
+    color 0.3s;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -298,7 +305,10 @@ body {
   font-size: 0.9rem;
   font-weight: 500;
   color: var(--chat-header-text);
-  transition: background-color 0.3s, border-color 0.3s, color 0.3s;
+  transition:
+    background-color 0.3s,
+    border-color 0.3s,
+    color 0.3s;
 }
 
 .messages-container {
@@ -316,7 +326,7 @@ body {
   border-radius: 12px;
   line-height: 1.6;
   font-size: 0.95rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .message.user {
@@ -334,7 +344,10 @@ body {
   color: var(--msg-asst-text);
   border-bottom-left-radius: 2px;
   border: 1px solid var(--msg-asst-border);
-  transition: background-color 0.3s, border-color 0.3s, color 0.3s;
+  transition:
+    background-color 0.3s,
+    border-color 0.3s,
+    color 0.3s;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
@@ -372,7 +385,7 @@ body:not(.dark-theme) .message-content blockquote {
   color: #a5f3fc;
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: 'Courier New', Courier, monospace;
+  font-family: "Courier New", Courier, monospace;
   font-size: 0.9em;
 }
 
@@ -411,7 +424,9 @@ body:not(.dark-theme) .message-content pre code {
   padding: 20px 30px;
   background-color: var(--input-container-bg);
   border-top: 1px solid var(--input-container-border);
-  transition: background-color 0.3s, border-color 0.3s;
+  transition:
+    background-color 0.3s,
+    border-color 0.3s;
 }
 
 .input-box {
@@ -421,7 +436,9 @@ body:not(.dark-theme) .message-content pre code {
   border: 1px solid var(--input-box-border);
   border-radius: 10px;
   padding: 8px 12px;
-  transition: background-color 0.3s, border-color 0.3s;
+  transition:
+    background-color 0.3s,
+    border-color 0.3s;
 }
 
 .chat-input {
@@ -563,7 +580,9 @@ body:not(.dark-theme) .message-content pre code {
   padding: 30px;
   background-color: var(--admin-bg);
   color: var(--admin-text-main);
-  transition: background-color 0.3s, color 0.3s;
+  transition:
+    background-color 0.3s,
+    color 0.3s;
   overflow-y: auto;
 }
 
@@ -575,7 +594,9 @@ body:not(.dark-theme) .message-content pre code {
   overflow-y: auto;
   background-color: var(--admin-bg);
   color: var(--admin-text-main);
-  transition: background-color 0.3s, color 0.3s;
+  transition:
+    background-color 0.3s,
+    color 0.3s;
 }
 
 .admin-card {
@@ -583,8 +604,10 @@ body:not(.dark-theme) .message-content pre code {
   padding: 24px;
   border-radius: 12px;
   border: 1px solid var(--admin-card-border);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  transition: background-color 0.3s, border-color 0.3s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition:
+    background-color 0.3s,
+    border-color 0.3s;
 }
 
 .responsive-form {
@@ -673,7 +696,6 @@ body:not(.dark-theme) .message-content pre code {
   }
 }
 
-
 .profile-container {
   flex: 1;
   padding: 30px;
@@ -689,7 +711,7 @@ body:not(.dark-theme) .message-content pre code {
   padding: 24px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   color: #f8fafc;
@@ -810,4 +832,3 @@ body:not(.dark-theme) .search-result-snippet mark {
   background-color: rgba(234, 179, 8, 0.35);
   color: #a16207;
 }
-

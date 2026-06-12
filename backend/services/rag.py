@@ -5,6 +5,9 @@ from database import get_qdrant, get_database
 from services.llm import get_llm, get_embeddings
 from qdrant_client.http import models as qd_models
 
+import re
+from bson import ObjectId
+
 # Intento de importar cohere. Si no está instalado, se manejará de forma segura.
 try:
     import cohere
@@ -24,50 +27,50 @@ SYSTEM_PROMPT = (
     "- No inventes ni supongas datos de fuentes totalmente ajenas. Sin embargo, debes utilizar y cruzar activamente la información del GLOSARIO / DOCTRINA BASE como fuente de verdad complementaria para enriquecer, traducir abreviaturas, corregir omisiones y completar datos que falten o estén incompletos en los documentos recuperados.\n"
     "- Cuando cites información, usa frases textuales si son precisas o listas específicas (por ejemplo, anexos, nombres o ítems).\n"
     "- Si la información recuperada permite una síntesis analítica o comparativa, preséntala claramente.\n"
-    "- Si no existe información suficiente o relevante en el contexto proporcionado (incluyendo el glosario), responde exactamente: \"No tengo la información solicitada en mi base de datos.\"\n"
+    '- Si no existe información suficiente o relevante en el contexto proporcionado (incluyendo el glosario), responde exactamente: "No tengo la información solicitada en mi base de datos."\n'
     "- Tu objetivo final es ofrecer respuestas que integren información real, textual y comprobable de los documentos almacenados y del glosario base, priorizando la precisión y fidelidad de los datos."
 )
 
-async def search_qdrant(query: str, folder_id: str = None, filenames: List[str] = None, top_k: int = 6) -> List[Dict[str, Any]]:
+
+async def search_qdrant(
+    query: str, folder_id: str = None, filenames: List[str] = None, top_k: int = 6
+) -> List[Dict[str, Any]]:
     qdrant = get_qdrant()
     embeddings = get_embeddings()
-    
+
     # 1. Generar embedding de la query
     try:
         # Use aembed_query if available, otherwise fallback to to_thread
-        if hasattr(embeddings, 'aembed_query'):
+        if hasattr(embeddings, "aembed_query"):
             query_vector = await embeddings.aembed_query(query)
         else:
             query_vector = await asyncio.to_thread(embeddings.embed_query, query)
     except Exception as e:
         print(f"Error generando embedding de query: {e}")
         return []
-    
+
     # 2. Configurar filtro por folder_id y/o filename si existen
     must_conditions = []
     if folder_id:
         must_conditions.append(
             qd_models.FieldCondition(
-                key="folder_id",
-                match=qd_models.MatchValue(value=folder_id)
+                key="folder_id", match=qd_models.MatchValue(value=folder_id)
             )
         )
     if filenames and len(filenames) > 0:
         if len(filenames) == 1:
             must_conditions.append(
                 qd_models.FieldCondition(
-                    key="filename",
-                    match=qd_models.MatchValue(value=filenames[0])
+                    key="filename", match=qd_models.MatchValue(value=filenames[0])
                 )
             )
         else:
             must_conditions.append(
                 qd_models.FieldCondition(
-                    key="filename",
-                    match=qd_models.MatchAny(any=filenames)
+                    key="filename", match=qd_models.MatchAny(any=filenames)
                 )
             )
-        
+
     qdrant_filter = None
     if must_conditions:
         qdrant_filter = qd_models.Filter(must=must_conditions)
@@ -81,24 +84,26 @@ async def search_qdrant(query: str, folder_id: str = None, filenames: List[str] 
             await asyncio.to_thread(
                 qdrant.create_collection,
                 collection_name="documents",
-                vectors_config=qd_models.VectorParams(size=384, distance=qd_models.Distance.COSINE) # MiniLM usa 384
+                vectors_config=qd_models.VectorParams(
+                    size=384, distance=qd_models.Distance.COSINE
+                ),  # MiniLM usa 384
             )
             return []
-            
+
         response = await asyncio.to_thread(
             qdrant.query_points,
             collection_name="documents",
             query=query_vector,
             query_filter=qdrant_filter,
-            limit=top_k
+            limit=top_k,
         )
-        
+
         return [
             {
                 "text": hit.payload.get("text", ""),
                 "filename": hit.payload.get("filename", ""),
                 "folder_id": hit.payload.get("folder_id", ""),
-                "score": hit.score
+                "score": hit.score,
             }
             for hit in response.points
         ]
@@ -106,28 +111,39 @@ async def search_qdrant(query: str, folder_id: str = None, filenames: List[str] 
         print(f"Error buscando en Qdrant: {e}")
         return []
 
+
 # Intento de importar flashrank. Si no está instalado, se manejará de forma segura.
 try:
-    from flashrank import Ranker, RerankRequest
+    from flashrank import Ranker
+
     _flashrank_ranker = None
 except ImportError:
     Ranker = None
     _flashrank_ranker = None
 
+
 def get_flashrank_ranker():
     global _flashrank_ranker
     if _flashrank_ranker is None and Ranker is not None:
         try:
-            cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "flashrank_cache")
+            cache_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "flashrank_cache",
+            )
             os.makedirs(cache_dir, exist_ok=True)
             # Usamos el modelo ms-marco-MiniLM-L-12-v2 que tiene buen soporte multilingüe y de español
-            _flashrank_ranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir=cache_dir)
+            _flashrank_ranker = Ranker(
+                model_name="ms-marco-MiniLM-L-12-v2", cache_dir=cache_dir
+            )
         except Exception as e:
             print(f"Error inicializando FlashRank: {e}")
             _flashrank_ranker = None
     return _flashrank_ranker
 
-async def rerank_documents(query: str, docs: List[Dict[str, Any]], top_n: int = 3) -> List[Dict[str, Any]]:
+
+async def rerank_documents(
+    query: str, docs: List[Dict[str, Any]], top_n: int = 3
+) -> List[Dict[str, Any]]:
     if not docs:
         return []
 
@@ -137,25 +153,25 @@ async def rerank_documents(query: str, docs: List[Dict[str, Any]], top_n: int = 
         try:
             passages = []
             for idx, doc in enumerate(docs):
-                passages.append({
-                    "id": idx,  # guardamos el índice original como ID
-                    "text": doc["text"]
-                })
-            
+                passages.append(
+                    {
+                        "id": idx,  # guardamos el índice original como ID
+                        "text": doc["text"],
+                    }
+                )
+
             # Ejecutar rerank en un hilo para no bloquear el loop asíncrono
             results = await asyncio.to_thread(
-                ranker.rerank,
-                query=query,
-                passages=passages
+                ranker.rerank, query=query, passages=passages
             )
-            
+
             reranked_docs = []
             for res in results[:top_n]:
                 orig_idx = int(res["id"])
                 orig_doc = docs[orig_idx]
                 orig_doc["rerank_score"] = float(res["score"])
                 reranked_docs.append(orig_doc)
-                
+
             return reranked_docs
         except Exception as e:
             print(f"Error rerankeando con FlashRank: {e}")
@@ -171,9 +187,9 @@ async def rerank_documents(query: str, docs: List[Dict[str, Any]], top_n: int = 
                 model="rerank-multilingual-v2.0",
                 query=query,
                 documents=documents,
-                top_n=top_n
+                top_n=top_n,
             )
-            
+
             reranked_docs = []
             for result in response.results:
                 idx = result.index
@@ -181,12 +197,10 @@ async def rerank_documents(query: str, docs: List[Dict[str, Any]], top_n: int = 
             return reranked_docs
         except Exception as e:
             print(f"Error rerankeando con Cohere: {e}")
-            
+
     # Si todo falla, devolver los primeros top_n sin reordenar
     return docs[:top_n]
 
-import re
-from bson import ObjectId
 
 async def detect_document_search_intent(query: str) -> bool:
     """
@@ -195,19 +209,24 @@ async def detect_document_search_intent(query: str) -> bool:
     Ejemplos: "¿En qué archivo...", "¿Qué ley...", "dónde se menciona...", etc.
     """
     query_clean = query.lower().strip()
-    
+
     # 1. Intentar cargar patrones personalizados desde MongoDB
     try:
         db = get_database()
         settings = await db.system_settings.find_one({"key": "intent_phrases"})
-        if settings and "value" in settings and isinstance(settings["value"], list) and len(settings["value"]) > 0:
+        if (
+            settings
+            and "value" in settings
+            and isinstance(settings["value"], list)
+            and len(settings["value"]) > 0
+        ):
             intent_patterns = settings["value"]
         else:
             intent_patterns = []
     except Exception as e:
         print(f"Error cargando frases de intención de DB: {e}")
         intent_patterns = []
-        
+
     # 2. Si no hay en DB, usar las por defecto
     if not intent_patterns:
         intent_patterns = [
@@ -220,12 +239,14 @@ async def detect_document_search_intent(query: str) -> bool:
             r"\bcu[aá]les?\s+(son\s+|est[aá]n\s+)?(todos\s+|todas\s+|todo\s+)?(los\s+|las\s+)?(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\b",
             r"\bcu[aá]les?\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(son\s+|est[aá]n\s+)?(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\b",
             r"\b(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\s+a\b",
-            r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(est[aá]n\s+)?(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\s+(con|a)\b"
+            r"\bqu[eé]\s+(documento|archivo|pdf|txt|docx|ley|reglamento)s?\s+(est[aá]n\s+)?(relacionados|asociados|vinculados|vinculado|relacionado|asociado)s?\s+(con|a)\b",
         ]
-        
+
     for pattern in intent_patterns:
         # Si parece una expresión regular compleja
-        if any(c in pattern for c in ['\\', '*', '+', '?', '^', '$', '(', ')', '[', ']']):
+        if any(
+            c in pattern for c in ["\\", "*", "+", "?", "^", "$", "(", ")", "[", "]"]
+        ):
             try:
                 if re.search(pattern, query_clean):
                     return True
@@ -235,10 +256,13 @@ async def detect_document_search_intent(query: str) -> bool:
             # Búsqueda literal
             if pattern.lower().strip() in query_clean:
                 return True
-            
+
     return False
 
-async def get_source_documents_metadata(unique_docs: List[tuple]) -> List[Dict[str, Any]]:
+
+async def get_source_documents_metadata(
+    unique_docs: List[tuple],
+) -> List[Dict[str, Any]]:
     db = get_database()
     source_docs = []
     for folder_id, filename in unique_docs:
@@ -247,17 +271,20 @@ async def get_source_documents_metadata(unique_docs: List[tuple]) -> List[Dict[s
             if folder_id:
                 if isinstance(folder_id, str) and len(folder_id) == 24:
                     query_filter["folder_id"] = folder_id
-            
+
             doc = await db.documents.find_one(query_filter)
             if doc:
-                source_docs.append({
-                    "id": str(doc["_id"]),
-                    "filename": filename,
-                    "folder_id": str(doc["folder_id"])
-                })
+                source_docs.append(
+                    {
+                        "id": str(doc["_id"]),
+                        "filename": filename,
+                        "folder_id": str(doc["folder_id"]),
+                    }
+                )
         except Exception as e:
             print(f"Error recuperando metadatos para {filename}: {e}")
     return source_docs
+
 
 async def detect_referred_filenames(query: str, db, folder_id: str = None) -> list[str]:
     """
@@ -266,39 +293,82 @@ async def detect_referred_filenames(query: str, db, folder_id: str = None) -> li
     'Invasiones Inglesas'). Retorna la lista de nombres de archivos coincidentes.
     """
     query_clean = query.lower()
-    
+
     query_filter = {}
     if folder_id:
         query_filter["folder_id"] = folder_id
-        
+
     cursor = db.documents.find(query_filter, {"filename": 1})
     db_filenames = []
     async for doc in cursor:
         if "filename" in doc and doc["filename"] not in db_filenames:
             db_filenames.append(doc["filename"])
-            
+
     if not db_filenames:
         return []
-        
+
     STOP_WORDS = {
-        'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'y', 'con', 'en', 
-        'para', 'por', 'que', 'es', 'son', 'esta', 'estan', 'documento', 'documentos', 'archivo', 
-        'archivos', 'pdf', 'txt', 'docx', 'carpeta', 'carpetas', 'relacionado', 'relacionados', 
-        'asociado', 'asociados', 'vinculado', 'vinculados', 'sobre', 'cuales', 'cual', 'donde', 
-        'como', 'informacion', 'apendice', 'apendices', 'suplemento', 'suplementos', 'agregado', 'agregados'
+        "el",
+        "la",
+        "los",
+        "las",
+        "un",
+        "una",
+        "unos",
+        "unas",
+        "de",
+        "del",
+        "al",
+        "y",
+        "con",
+        "en",
+        "para",
+        "por",
+        "que",
+        "es",
+        "son",
+        "esta",
+        "estan",
+        "documento",
+        "documentos",
+        "archivo",
+        "archivos",
+        "pdf",
+        "txt",
+        "docx",
+        "carpeta",
+        "carpetas",
+        "relacionado",
+        "relacionados",
+        "asociado",
+        "asociados",
+        "vinculado",
+        "vinculados",
+        "sobre",
+        "cuales",
+        "cual",
+        "donde",
+        "como",
+        "informacion",
+        "apendice",
+        "apendices",
+        "suplemento",
+        "suplementos",
+        "agregado",
+        "agregados",
     }
-    
+
     matched_filenames = []
     words = query_clean.split()
-    
+
     for filename in db_filenames:
         filename_clean = filename.lower().rsplit(".", 1)[0]
-        
+
         found = False
         # A. Comparación de frases de 2 palabras consecutivas
         for i in range(len(words) - 1):
             w1 = re.sub(r"[^\w]", "", words[i])
-            w2 = re.sub(r"[^\w]", "", words[i+1])
+            w2 = re.sub(r"[^\w]", "", words[i + 1])
             if not w1 or not w2:
                 continue
             if w1 in STOP_WORDS and w2 in STOP_WORDS:
@@ -308,22 +378,32 @@ async def detect_referred_filenames(query: str, db, folder_id: str = None) -> li
                 matched_filenames.append(filename)
                 found = True
                 break
-                
+
         if found:
             continue
-            
+
         # B. Comparación de palabra única muy específica (longitud > 5, no stop word)
         for w in words:
             w_clean = re.sub(r"[^\w]", "", w)
-            if len(w_clean) > 5 and w_clean not in STOP_WORDS and w_clean in filename_clean:
+            if (
+                len(w_clean) > 5
+                and w_clean not in STOP_WORDS
+                and w_clean in filename_clean
+            ):
                 matched_filenames.append(filename)
                 break
-                
+
     return matched_filenames
 
-async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] = None, user_role: str = "user") -> tuple[str, List[Dict[str, Any]]]:
+
+async def run_rag_chain(
+    query: str,
+    folder_id: str = None,
+    filenames: List[str] = None,
+    user_role: str = "user",
+) -> tuple[str, List[Dict[str, Any]]]:
     db = get_database()
-    
+
     # Intentar detectar automáticamente si la consulta se refiere a archivos específicos
     if not filenames:
         detected_files = await detect_referred_filenames(query, db, folder_id)
@@ -335,31 +415,63 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
     if await detect_document_search_intent(query):
         # Si la consulta se refiere a archivos específicos y los detectamos por nombre,
         # y es una pregunta global para listar/buscar archivos, los listamos directamente sin demora.
-        if filenames and any(x in query.lower() for x in ["cuales", "lista", "buscar", "dame", "mostrar", "ver", "relacionado", "relacionados"]):
-            response_parts = ["He encontrado los siguientes documentos relacionados con tu búsqueda en el sistema:\n"]
+        if filenames and any(
+            x in query.lower()
+            for x in [
+                "cuales",
+                "lista",
+                "buscar",
+                "dame",
+                "mostrar",
+                "ver",
+                "relacionado",
+                "relacionados",
+            ]
+        ):
+            response_parts = [
+                "He encontrado los siguientes documentos relacionados con tu búsqueda en el sistema:\n"
+            ]
             for idx, fname in enumerate(filenames):
                 doc_meta = await db.documents.find_one({"filename": fname})
                 fid = str(doc_meta["folder_id"]) if doc_meta else None
-                folder_doc = await db.folders.find_one({"_id": ObjectId(fid)}) if fid else None
+                folder_doc = (
+                    await db.folders.find_one({"_id": ObjectId(fid)}) if fid else None
+                )
                 folder_name = folder_doc.get("name") if folder_doc else "General"
-                response_parts.append(f"{idx+1}. Documento: **{fname}** (Carpeta: *{folder_name}*)")
-            
-            response_parts.append("\n¿Deseas visualizar alguno de ellos o realizar otra consulta?")
-            
-            unique_docs = [(str(doc_meta["folder_id"]) if doc_meta else None, fname) for fname in filenames]
+                response_parts.append(
+                    f"{idx + 1}. Documento: **{fname}** (Carpeta: *{folder_name}*)"
+                )
+
+            response_parts.append(
+                "\n¿Deseas visualizar alguno de ellos o realizar otra consulta?"
+            )
+
+            unique_docs = [
+                (str(doc_meta["folder_id"]) if doc_meta else None, fname)
+                for fname in filenames
+            ]
             unique_docs = [u for u in unique_docs if u[0] is not None]
             source_docs = await get_source_documents_metadata(unique_docs)
             return "\n".join(response_parts), source_docs
 
         try:
             from services.search_whoosh import search_keywords
-            whoosh_matches = search_keywords(query, folder_id=folder_id, filenames=filenames, limit=6, markdown_highlights=True)
+
+            whoosh_matches = search_keywords(
+                query,
+                folder_id=folder_id,
+                filenames=filenames,
+                limit=6,
+                markdown_highlights=True,
+            )
         except Exception as e:
-            print(f"Error buscando por palabras clave en Whoosh para cortocircuito: {e}")
+            print(
+                f"Error buscando por palabras clave en Whoosh para cortocircuito: {e}"
+            )
             whoosh_matches = []
-            
+
         db = get_database()
-        
+
         if whoosh_matches:
             # Agrupar coincidencias por documento
             grouped_matches = {}  # (folder_id, filename) -> list of snippets
@@ -371,24 +483,34 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
                 s = match["snippet"].strip()
                 if s not in grouped_matches[key]:
                     grouped_matches[key].append(s)
-            
-            response_parts = ["He encontrado coincidencias exactas para tu búsqueda en los siguientes documentos:\n"]
+
+            response_parts = [
+                "He encontrado coincidencias exactas para tu búsqueda en los siguientes documentos:\n"
+            ]
             for idx, ((fid, fname), snippets) in enumerate(grouped_matches.items()):
-                folder_doc = await db.folders.find_one({"_id": ObjectId(fid)}) if fid else None
+                folder_doc = (
+                    await db.folders.find_one({"_id": ObjectId(fid)}) if fid else None
+                )
                 folder_name = folder_doc.get("name") if folder_doc else "General"
-                
-                response_parts.append(f"{idx+1}. Documento: **{fname}** (Carpeta: *{folder_name}*):")
+
+                response_parts.append(
+                    f"{idx + 1}. Documento: **{fname}** (Carpeta: *{folder_name}*):"
+                )
                 for snippet in snippets:
                     response_parts.append(f"   > ... {snippet} ...\n")
-            
-            response_parts.append("\n¿Deseas que profundice en el contenido de alguno de estos documentos o tienes otra pregunta?")
-            
+
+            response_parts.append(
+                "\n¿Deseas que profundice en el contenido de alguno de estos documentos o tienes otra pregunta?"
+            )
+
             unique_docs = list(grouped_matches.keys())
             source_docs = await get_source_documents_metadata(unique_docs)
             return "\n".join(response_parts), source_docs
         else:
             # Fallback semántico (Qdrant) si Whoosh no encuentra nada, pero formateado de forma directa
-            qdrant_matches = await search_qdrant(query, folder_id=folder_id, filenames=filenames, top_k=6)
+            qdrant_matches = await search_qdrant(
+                query, folder_id=folder_id, filenames=filenames, top_k=6
+            )
             if qdrant_matches:
                 # Agrupar por documento
                 grouped_matches = {}
@@ -399,30 +521,43 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
                     s = match["text"][:250].strip() + "..."
                     if s not in grouped_matches[key]:
                         grouped_matches[key].append(s)
-                
-                response_parts = ["No encontré coincidencias exactas, pero he hallado estos fragmentos relacionados por concepto:\n"]
+
+                response_parts = [
+                    "No encontré coincidencias exactas, pero he hallado estos fragmentos relacionados por concepto:\n"
+                ]
                 for idx, ((fid, fname), snippets) in enumerate(grouped_matches.items()):
-                    folder_doc = await db.folders.find_one({"_id": ObjectId(fid)}) if fid else None
+                    folder_doc = (
+                        await db.folders.find_one({"_id": ObjectId(fid)})
+                        if fid
+                        else None
+                    )
                     folder_name = folder_doc.get("name") if folder_doc else "General"
-                    
-                    response_parts.append(f"{idx+1}. Documento: **{fname}** (Carpeta: *{folder_name}*):")
+
+                    response_parts.append(
+                        f"{idx + 1}. Documento: **{fname}** (Carpeta: *{folder_name}*):"
+                    )
                     for snippet in snippets:
                         response_parts.append(f"   > ... {snippet} ...\n")
-                
-                response_parts.append("\n¿Deseas que responda una pregunta en base a estos textos o prefieres buscar algo diferente?")
-                
+
+                response_parts.append(
+                    "\n¿Deseas que responda una pregunta en base a estos textos o prefieres buscar algo diferente?"
+                )
+
                 unique_docs = list(grouped_matches.keys())
                 source_docs = await get_source_documents_metadata(unique_docs)
                 return "\n".join(response_parts), source_docs
-                
-            return "No he encontrado ningún documento en la base de datos que mencione esos términos de búsqueda.", []
+
+            return (
+                "No he encontrado ningún documento en la base de datos que mencione esos términos de búsqueda.",
+                [],
+            )
 
     # 1. Recuperar de Qdrant (buscamos un top_k más alto para luego rerankear y no perder contexto)
     docs = await search_qdrant(query, folder_id, filenames, top_k=20)
-    
+
     # 2. Rerankear (local con FlashRank, fallback a Cohere)
     reranked_docs = await rerank_documents(query, docs, top_n=3)
-    
+
     # 3. Recuperar el Glosario Base Militar de MongoDB
     db = get_database()
     settings = await db.system_settings.find_one({"key": "military_glossary"})
@@ -433,12 +568,14 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
     if reranked_docs:
         context_parts = []
         for idx, doc in enumerate(reranked_docs):
-            context_parts.append(f"[Documento {idx+1}: {doc['filename']}]\n{doc['text']}")
+            context_parts.append(
+                f"[Documento {idx + 1}: {doc['filename']}]\n{doc['text']}"
+            )
         context = "\n\n".join(context_parts)
     else:
         # Si no hay documentos en Qdrant, respondemos directamente con el mensaje predeterminado
         return "No tengo la información solicitada en mi base de datos.", []
-        
+
     # 5. Ajustar el Prompt según el rol
     role_instruction = ""
     if user_role == "admin":
@@ -475,20 +612,29 @@ async def run_rag_chain(query: str, folder_id: str = None, filenames: List[str] 
         f"Pregunta del usuario: {query}\n\n"
         f"Respuesta estructurada:"
     )
-    
+
     # 7. Generar con LLM (Ollama / LLaMA 3.1)
     try:
         llm = get_llm()
-        if hasattr(llm, 'ainvoke'):
+        if hasattr(llm, "ainvoke"):
             response = await llm.ainvoke(prompt)
         else:
             response = await asyncio.to_thread(llm.invoke, prompt)
-            
+
         # Obtener metadatos de documentos fuente únicos
-        unique_docs = list(set((doc.get("folder_id"), doc.get("filename")) for doc in reranked_docs if doc.get("filename")))
+        unique_docs = list(
+            set(
+                (doc.get("folder_id"), doc.get("filename"))
+                for doc in reranked_docs
+                if doc.get("filename")
+            )
+        )
         source_docs = await get_source_documents_metadata(unique_docs)
-        
+
         return response, source_docs
     except Exception as e:
         print(f"Error generando respuesta con Ollama: {e}")
-        return "Lo siento, ocurrió un error interno al conectar con el modelo LLaMA local o la petición fue cancelada.", []
+        return (
+            "Lo siento, ocurrió un error interno al conectar con el modelo LLaMA local o la petición fue cancelada.",
+            [],
+        )

@@ -31,4 +31,12 @@ backend/uploads/
 backend/whoosh_index/
 backend/flashrank_cache/
 
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
 
